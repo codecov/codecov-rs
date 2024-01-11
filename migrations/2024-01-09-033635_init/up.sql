@@ -27,5 +27,6 @@ CREATE TABLE context_assoc (
 
 CREATE TABLE context (
     id INTEGER PRIMARY KEY,
+    context_type VARCHAR NOT NULL,
     name VARCHAR NOT NULL
 );

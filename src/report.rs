@@ -62,6 +62,7 @@ mod tests {
 
         let mock_context = models::Context {
             id: 0,
+            context_type: schema::ContextType::TestCase,
             name: "mock_context".to_string(),
         };
         diesel::insert_into(schema::context::table)

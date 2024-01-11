@@ -46,5 +46,6 @@ pub struct ContextAssoc {
 #[diesel(table_name = context)]
 pub struct Context {
     pub id: i32,
+    pub context_type: ContextType,
     pub name: String,
 }

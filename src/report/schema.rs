@@ -7,6 +7,12 @@ pub enum CoverageStatus {
     Partial,
 }
 
+#[derive(diesel_derive_enum::DbEnum, Debug, PartialEq)]
+pub enum ContextType {
+    TestCase,
+    Upload,
+}
+
 diesel::table! {
     use diesel::sql_types::{VarChar, Integer};
     source_file (id) {
@@ -49,8 +55,10 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::{VarChar, Integer};
+    use super::ContextTypeMapping;
     context (id) {
         id -> Integer,
+        context_type -> ContextTypeMapping,
         name -> VarChar,
     }
 }
