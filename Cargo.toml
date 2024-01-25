@@ -8,5 +8,12 @@ diesel = { version = "2.1.4", features = ["sqlite"] }
 diesel_migrations = "2.1.0"
 diesel-derive-enum = { version = "2.1.0", features = ["sqlite"] }
 
+winnow = "0.5.34"
+
 [dev-dependencies]
 tempfile = "3.9.0"
+
+[features]
+default = ["pyreport_shim"]
+
+pyreport_shim = []
