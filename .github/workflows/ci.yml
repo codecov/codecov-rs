@@ -22,6 +22,7 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
         with:
           toolchain: nightly
+          components: clippy, rustfmt
       - name: Run lint
         run: |
           cargo fmt --all --check
