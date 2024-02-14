@@ -3,29 +3,18 @@ use std::collections::HashMap;
 use winnow::{
     ascii::float,
     combinator::{alt, fold_repeat, preceded, separated, separated_pair, terminated},
-    stream::{AsBStr, Compare, ParseSlice, Stream, StreamIsPartial},
-    token::{none_of, take_while},
+    error::ContextError,
+    stream::Stream,
+    token::none_of,
     PResult, Parser,
 };
 
-pub trait CharStream = Stream<Token = char> + StreamIsPartial;
-pub trait StrStream = CharStream + for<'a> Compare<&'a str> + AsBStr
-where
-    <Self as Stream>::IterOffsets: Clone,
-    <Self as Stream>::Slice: ParseSlice<f64>;
+use crate::parsers::{ws, StrStream};
 
 /*
  * Parsers in this section return raw Rust types and may be useful to other
  * parsers.
  */
-
-/// Characters considered whitespace for the `ws` parser.
-const WHITESPACE: &[char] = &[' ', '\t', '\n', '\r'];
-
-/// Parses a series of whitespace characters, returning the series as a slice.
-pub fn ws<S: CharStream>(buf: &mut S) -> PResult<<S as Stream>::Slice> {
-    take_while(0.., WHITESPACE).parse_next(buf)
-}
 
 /// Parses the string "null", returning "null" as a slice.
 pub fn parse_null<S: StrStream>(buf: &mut S) -> PResult<<S as Stream>::Slice> {
@@ -154,18 +143,33 @@ pub fn json_value<S: StrStream>(buf: &mut S) -> PResult<JsonVal> {
     .parse_next(buf)
 }
 
+/// Parses the next key + `:` delimiter and asserts that the key matches the
+/// passed-in value. To get the corresponding value, parse with something like:
+///
+/// ```
+/// # use codecov_rs::parsers::json::{specific_key, json_value, JsonVal};
+/// # use winnow::combinator::preceded;
+/// # use winnow::Parser;
+/// let expected = Ok(("", JsonVal::Array(vec![])));
+/// let result = preceded(specific_key("files"), json_value).parse_peek("\"files\": []");
+/// assert_eq!(expected, result);
+/// ```
+///
+/// Not used in generic json parsing but helpful when writing parsers for json
+/// data that adheres to a schema.
+pub fn specific_key<S: StrStream>(key: &str) -> impl Parser<S, String, ContextError> + '_ {
+    move |i: &mut S| {
+        preceded(ws, terminated(parse_str, (ws, ':', ws)))
+            .verify(move |s: &String| s == key)
+            .parse_next(i)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use winnow::error::{ContextError, ErrMode};
 
     use super::*;
-
-    #[test]
-    fn test_ws() {
-        assert_eq!(ws.parse_peek(" \r\t\n"), Ok(("", " \r\t\n")));
-        assert_eq!(ws.parse_peek("  asd"), Ok(("asd", "  ")));
-        assert_eq!(ws.parse_peek("asd  "), Ok(("asd  ", "")));
-    }
 
     #[test]
     fn test_parse_null() {
@@ -652,6 +656,28 @@ mod tests {
                     ("object".to_string(), JsonVal::Object(HashMap::from([("k".to_string(), JsonVal::Num(4.4))])))
                 ]))
             ))
+        );
+    }
+
+    #[test]
+    fn test_specific_key() {
+        assert_eq!(
+            specific_key("files").parse_peek("\"files\": {\"src/report.rs"),
+            Ok(("{\"src/report.rs", "files".to_string()))
+        );
+
+        // malformed
+        assert_eq!(
+            specific_key("files").parse_peek("files\": {\"src"),
+            Err(ErrMode::Backtrack(ContextError::new()))
+        );
+        assert_eq!(
+            specific_key("files").parse_peek("\"files: {\"src"),
+            Err(ErrMode::Backtrack(ContextError::new()))
+        );
+        assert_eq!(
+            specific_key("files").parse_peek("leading\"files\": {\"src"),
+            Err(ErrMode::Backtrack(ContextError::new()))
         );
     }
 }
