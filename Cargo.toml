@@ -4,9 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-diesel = { version = "2.1.4", features = ["sqlite"] }
-diesel_migrations = "2.1.0"
-diesel-derive-enum = { version = "2.1.0", features = ["sqlite"] }
+rusqlite = { version = "0.30.0", features = ["bundled"] }
+rusqlite_migration = { version = "1.1.0", features = ["from-directory"] }
+
+include_dir = "0.7.3"
+lazy_static = "1.4.0"
+strum = "0.26.1"
+strum_macros = "0.26.1"
 
 winnow = "0.5.34"
 

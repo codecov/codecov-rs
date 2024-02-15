@@ -1,51 +1,80 @@
-use diesel::{Associations, Identifiable, Insertable, Queryable, Selectable};
+use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
+use strum_macros::{Display, EnumString};
 
-use crate::report::schema::*;
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum CoverageStatus {
+    Hit = 1,
+    Miss,
+    Partial,
+}
 
-#[derive(Queryable, Identifiable, Selectable, Insertable, Debug, PartialEq)]
-#[diesel(table_name = source_file)]
+impl ToSql for CoverageStatus {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        Ok((*self as i32).into())
+    }
+}
+
+impl FromSql for CoverageStatus {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        let variant = match value.as_i64()? {
+            1 => CoverageStatus::Hit,
+            2 => CoverageStatus::Miss,
+            3 => CoverageStatus::Partial,
+            _ => panic!("Uh oh"),
+        };
+        Ok(variant)
+    }
+}
+
+#[derive(EnumString, Display, Debug, PartialEq)]
+pub enum ContextType {
+    TestCase,
+    Upload,
+}
+
+impl ToSql for ContextType {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        Ok(self.to_string().into())
+    }
+}
+
+impl FromSql for ContextType {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        value
+            .as_str()?
+            .parse()
+            .map_err(|e| FromSqlError::Other(Box::new(e)))
+    }
+}
+
 pub struct SourceFile {
-    pub id: i32,
+    pub id: Option<i32>,
     pub path: String,
 }
 
-#[derive(Queryable, Identifiable, Selectable, Associations, Insertable, Debug, PartialEq)]
-#[diesel(belongs_to(SourceFile))]
-#[diesel(table_name = line_status)]
 pub struct LineStatus {
-    pub id: i32,
+    pub id: Option<i32>,
     pub source_file_id: i32,
     pub line_no: i32,
     pub coverage_status: CoverageStatus,
 }
 
-#[derive(Queryable, Identifiable, Selectable, Associations, Insertable, Debug, PartialEq)]
-#[diesel(belongs_to(SourceFile))]
-#[diesel(table_name = branch_status)]
 pub struct BranchStatus {
-    pub id: i32,
+    pub id: Option<i32>,
     pub source_file_id: i32,
     pub start_line_no: i32,
     pub end_line_no: i32,
     pub coverage_status: CoverageStatus,
 }
 
-#[derive(Queryable, Identifiable, Selectable, Associations, Insertable, Debug, PartialEq)]
-#[diesel(belongs_to(Context))]
-#[diesel(belongs_to(LineStatus, foreign_key = line_id))]
-#[diesel(belongs_to(BranchStatus, foreign_key = branch_id))]
-#[diesel(table_name = context_assoc)]
-#[diesel(primary_key(context_id, line_id, branch_id))]
 pub struct ContextAssoc {
     pub context_id: i32,
     pub line_id: Option<i32>,
     pub branch_id: Option<i32>,
 }
 
-#[derive(Queryable, Identifiable, Selectable, Insertable, Debug, PartialEq)]
-#[diesel(table_name = context)]
 pub struct Context {
-    pub id: i32,
+    pub id: Option<i32>,
     pub context_type: ContextType,
     pub name: String,
 }
