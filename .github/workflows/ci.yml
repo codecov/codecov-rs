@@ -67,3 +67,15 @@ jobs:
         uses: codecov/codecov-action@v4-beta
         with:
           token: ${{ secrets.CODECOV_ORG_TOKEN }}
+      - name: Generate JUnit test results
+        # Run tests again but with JSON output. Convert to junit then upload.
+        # The original format is nicer to look at in CI error messages.
+        run: |
+          cargo install cargo2junit
+          cargo test -- -Z unstable-options --format json --report-time | cargo2junit > results.xml
+      - name: Upload test results
+        uses: codecov/test-results-action@v1
+        with:
+          file: ./results.xml
+          token: ${{ secrets.CODECOV_ORG_TOKEN }}
+          verbose: true
