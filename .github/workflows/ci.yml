@@ -62,7 +62,7 @@ jobs:
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Collect coverage
         run: |
-          cargo llvm-cov --no-default-features --lcov --output-path lcov.info
+          cargo llvm-cov --lcov --output-path lcov.info
       - name: Upload to Codecov
         uses: codecov/codecov-action@v4-beta
         with:
