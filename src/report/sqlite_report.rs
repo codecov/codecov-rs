@@ -35,7 +35,48 @@ impl SqliteReport {
     }
 }
 
-impl Report for SqliteReport {}
+impl Report for SqliteReport {
+    // TODO: implement for real, just using for integration tests
+    fn list_files(&self) -> Result<Vec<models::SourceFile>> {
+        let mut stmt = self
+            .conn
+            // TODO: memoize prepared statements
+            .prepare("SELECT id, path FROM source_file")?;
+        let rows = stmt.query_map([], |row| {
+            Ok(models::SourceFile {
+                id: row.get(0)?,
+                path: row.get(1)?,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    // TODO: implement for real, just using for integration tests
+    fn list_contexts(&self) -> Result<Vec<models::Context>> {
+        let mut stmt = self
+            .conn
+            // TODO: memoize prepared statements
+            .prepare("SELECT id, context_type, name FROM context")?;
+        let rows = stmt.query_map([], |row| {
+            Ok(models::Context {
+                id: row.get(0)?,
+                context_type: row.get(1)?,
+                name: row.get(2)?,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+}
 
 pub struct SqliteReportBuilder {
     pub filename: PathBuf,

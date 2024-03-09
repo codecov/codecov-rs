@@ -167,7 +167,7 @@ pub fn specific_key<S: StrStream>(key: &str) -> impl Parser<S, String, ContextEr
 
 #[cfg(test)]
 mod tests {
-    use winnow::error::{ContextError, ErrMode};
+    use winnow::error::ErrMode;
 
     use super::*;
 

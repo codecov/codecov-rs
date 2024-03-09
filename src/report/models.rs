@@ -47,6 +47,7 @@ impl FromSql for ContextType {
     }
 }
 
+#[derive(PartialEq, Debug)]
 pub struct SourceFile {
     pub id: Option<i32>,
     pub path: String,
@@ -73,6 +74,7 @@ pub struct ContextAssoc {
     pub branch_id: Option<i32>,
 }
 
+#[derive(PartialEq, Debug)]
 pub struct Context {
     pub id: Option<i32>,
     pub context_type: ContextType,
