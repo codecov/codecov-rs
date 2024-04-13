@@ -20,7 +20,7 @@ pub struct SqliteReport {
 }
 
 fn open_database(filename: &PathBuf) -> Connection {
-    let mut conn = Connection::open(&filename).expect("error opening database");
+    let mut conn = Connection::open(filename).expect("error opening database");
     MIGRATIONS
         .to_latest(&mut conn)
         .expect("error applying migrations");

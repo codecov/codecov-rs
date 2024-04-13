@@ -86,7 +86,7 @@ pub fn report_file<S: StrStream, R: Report, B: ReportBuilder<R>>(
         return Err(ErrMode::Cut(ContextError::new()));
     };
 
-    let Some(JsonVal::Num(chunks_index)) = vals.get(0) else {
+    let Some(JsonVal::Num(chunks_index)) = vals.first() else {
         return Err(ErrMode::Cut(ContextError::new()));
     };
 
@@ -281,7 +281,7 @@ mod tests {
     fn setup() -> Ctx {
         let report_builder = MockReportBuilder::new();
         let parse_ctx = ParseCtx {
-            report_builder: report_builder,
+            report_builder,
             _phantom: std::marker::PhantomData,
         };
 
@@ -294,7 +294,7 @@ mod tests {
         fn test_report_file(path: &str, input: &str) -> PResult<(usize, i32)> {
             let ctx = setup();
             let mut buf = TestStream {
-                input: input,
+                input,
                 state: ctx.parse_ctx,
             };
 
@@ -370,7 +370,7 @@ mod tests {
         fn test_report_session(name: &str, input: &str) -> PResult<(usize, i32)> {
             let ctx = setup();
             let mut buf = TestStream {
-                input: input,
+                input,
                 state: ctx.parse_ctx,
             };
 
@@ -453,7 +453,7 @@ mod tests {
         fn test_report_files_dict(paths: &[&str], input: &str) -> PResult<HashMap<usize, i32>> {
             let ctx = setup();
             let mut buf = TestStream {
-                input: input,
+                input,
                 state: ctx.parse_ctx,
             };
 
@@ -548,7 +548,7 @@ mod tests {
         fn test_report_sessions_dict(names: &[&str], input: &str) -> PResult<HashMap<usize, i32>> {
             let ctx = setup();
             let mut buf = TestStream {
-                input: input,
+                input,
                 state: ctx.parse_ctx,
             };
 
@@ -664,7 +664,7 @@ mod tests {
         ) -> PResult<(HashMap<usize, i32>, HashMap<usize, i32>)> {
             let ctx = setup();
             let mut buf = TestStream {
-                input: input,
+                input,
                 state: ctx.parse_ctx,
             };
 
