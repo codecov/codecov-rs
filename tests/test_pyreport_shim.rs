@@ -1,19 +1,19 @@
 use std::{collections::HashMap, path::Path};
 
 use codecov_rs::{
-    parsers::{pyreport_shim::parse_report_json, ParseCtx, ReportOutputStream},
+    parsers::{pyreport_shim::parse_report_json, ReportBuilderCtx},
     report::{models, Report, ReportBuilder, SqliteReport, SqliteReportBuilder},
 };
 use tempfile::TempDir;
-use winnow::Parser;
+use winnow::{Parser, Stateful};
 
 mod common;
 
-type SqliteStream<'a> = ReportOutputStream<&'a str, SqliteReport, SqliteReportBuilder>;
+type SqliteStream<'a> = Stateful<&'a str, ReportBuilderCtx<SqliteReport, SqliteReportBuilder>>;
 
 struct Ctx {
     _temp_dir: TempDir,
-    parse_ctx: ParseCtx<SqliteReport, SqliteReportBuilder>,
+    parse_ctx: ReportBuilderCtx<SqliteReport, SqliteReportBuilder>,
 }
 
 fn setup() -> Ctx {
@@ -21,7 +21,7 @@ fn setup() -> Ctx {
     let db_file = temp_dir.path().to_owned().join("db.sqlite");
 
     let report_builder = SqliteReportBuilder::new(db_file);
-    let parse_ctx = ParseCtx::new(report_builder);
+    let parse_ctx = ReportBuilderCtx::new(report_builder);
 
     Ctx {
         _temp_dir: temp_dir,

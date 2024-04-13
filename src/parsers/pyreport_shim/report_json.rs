@@ -3,16 +3,18 @@ use std::collections::HashMap;
 use winnow::{
     combinator::{cut_err, preceded, separated, terminated},
     error::{ContextError, ErrMode},
-    PResult, Parser,
+    PResult, Parser, Stateful,
 };
 
 use crate::{
     parsers::{
         json::{parse_kv, specific_key, JsonVal},
-        ws, Report, ReportBuilder, ReportOutputStream, StrStream,
+        ws, Report, ReportBuilder, ReportBuilderCtx, StrStream,
     },
     report::models,
 };
+
+pub type ReportOutputStream<S, R, B> = Stateful<S, ReportBuilderCtx<R, B>>;
 
 /// Parses a key-value pair where the key is a filename and the value is a
 /// `ReportFileSummary`. We primarily care about the chunks_index field and can
@@ -267,20 +269,17 @@ mod tests {
     use mockall::predicate::*;
 
     use super::*;
-    use crate::{
-        parsers::ParseCtx,
-        report::{MockReport, MockReportBuilder},
-    };
+    use crate::report::{MockReport, MockReportBuilder};
 
     type TestStream<'a> = ReportOutputStream<&'a str, MockReport, MockReportBuilder<MockReport>>;
 
     struct Ctx {
-        parse_ctx: ParseCtx<MockReport, MockReportBuilder<MockReport>>,
+        parse_ctx: ReportBuilderCtx<MockReport, MockReportBuilder<MockReport>>,
     }
 
     fn setup() -> Ctx {
         let report_builder = MockReportBuilder::new();
-        let parse_ctx = ParseCtx {
+        let parse_ctx = ReportBuilderCtx {
             report_builder,
             _phantom: std::marker::PhantomData,
         };

@@ -1,19 +1,64 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt, fmt::Debug, marker::PhantomData};
 
 use winnow::{
     combinator::{alt, opt, preceded, separated, separated_pair, seq, terminated},
     error::{ContextError, ErrMode},
     stream::Stream,
-    PResult, Parser,
+    PResult, Parser, Stateful,
 };
 
 use crate::{
     parsers::{
         json::{json_value, parse_object, parse_str, JsonVal},
-        nullable, parse_u32, ws, Report, ReportBuilder, ReportOutputStream, StrStream,
+        nullable, parse_u32, ws, Report, ReportBuilder, ReportBuilderCtx, StrStream,
     },
     report::models::{Context, ContextType},
 };
+
+#[derive(PartialEq, Debug)]
+struct ChunkCtx {
+    index: u32,
+}
+
+#[derive(PartialEq)]
+pub struct ParseCtx<R: Report, B: ReportBuilder<R>> {
+    db: ReportBuilderCtx<R, B>,
+    labels_index: HashMap<String, i32>,
+    chunk: ChunkCtx,
+    report_json_files: HashMap<usize, i32>,
+    report_json_sessions: HashMap<usize, i32>,
+}
+
+pub type ReportOutputStream<S, R, B> = Stateful<S, ParseCtx<R, B>>;
+
+impl<R: Report, B: ReportBuilder<R>> ParseCtx<R, B> {
+    pub fn new(
+        report_builder: B,
+        report_json_files: HashMap<usize, i32>,
+        report_json_sessions: HashMap<usize, i32>,
+    ) -> ParseCtx<R, B> {
+        ParseCtx {
+            labels_index: HashMap::new(),
+            db: ReportBuilderCtx {
+                report_builder,
+                _phantom: PhantomData,
+            },
+            chunk: ChunkCtx { index: 0 },
+            report_json_files,
+            report_json_sessions,
+        }
+    }
+}
+
+impl<R: Report, B: ReportBuilder<R>> Debug for ParseCtx<R, B> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ParseCtx")
+            .field("db", &self.db)
+            .field("labels_index", &self.labels_index)
+            .field("chunk", &self.chunk)
+            .finish()
+    }
+}
 
 const FILE_HEADER_TERMINATOR: &str = "<<<<< end_of_header >>>>>";
 const END_OF_CHUNK: &str = "<<<<< end_of_chunk >>>>>";
@@ -382,26 +427,10 @@ pub fn chunk<'a, S: StrStream, R: Report, B: ReportBuilder<R>>(
 where
     S: Stream<Slice = &'a str>,
 {
+    buf.state.chunk.index += 1; // nyeh nyeh nyeh
     let _: PResult<Vec<_>> =
         preceded(opt((chunk_header, '\n')), separated(0.., report_line, '\n')).parse_next(buf);
     Ok(())
-}
-
-/* Possible approach to passing labels_index etc into the parser */
-// Doesn't really work well. Probably want a generic type around parser state
-pub fn chunk_wrapped<'a, S: StrStream + 'a, R: Report + 'a, B: ReportBuilder<R> + 'a>(
-    labels_index: &'a mut HashMap<String, i32>,
-) -> impl Parser<ReportOutputStream<S, R, B>, (), ContextError> + 'a
-where
-    S: Stream<Slice = &'a str>,
-{
-    move |buf: &mut ReportOutputStream<S, R, B>| {
-        labels_index.insert("foo".to_string(), 1);
-        let _: PResult<Vec<_>> =
-            preceded(opt((chunk_header, '\n')), separated(0.., report_line, '\n')).parse_next(buf);
-        Ok(())
-    }
-    //    chunk::<S, R, B>
 }
 
 /// TODO verify keys are what we expect
@@ -430,7 +459,6 @@ where
     // database and then put the (name, db_pk) pair into the hashmap.
     //
     // Either way, the key is a string. It's a little gross but it will work.
-    let mut labels_index: HashMap<String, i32> = HashMap::new();
 
     let mut file_header = opt(file_header).parse_next(buf)?;
     if let Some(file_header) = file_header.as_mut() {
@@ -446,8 +474,8 @@ where
                         name,
                     };
                     // TODO handle error
-                    let context = buf.state.report_builder.insert_context(context).unwrap();
-                    labels_index.insert(index, context.id.unwrap());
+                    let context = buf.state.db.report_builder.insert_context(context).unwrap();
+                    buf.state.labels_index.insert(index, context.id.unwrap());
                 }
             }
             Some(JsonVal::Null) | None => {}

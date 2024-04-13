@@ -23,29 +23,27 @@ where
     <Self as Stream>::Slice: ParseSlice<f64>;
 
 #[derive(PartialEq)]
-pub struct ParseCtx<R: Report, B: ReportBuilder<R>> {
+pub struct ReportBuilderCtx<R: Report, B: ReportBuilder<R>> {
     pub report_builder: B,
     _phantom: PhantomData<R>,
 }
 
-impl<R: Report, B: ReportBuilder<R>> ParseCtx<R, B> {
-    pub fn new(report_builder: B) -> ParseCtx<R, B> {
-        ParseCtx {
+impl<R: Report, B: ReportBuilder<R>> ReportBuilderCtx<R, B> {
+    pub fn new(report_builder: B) -> ReportBuilderCtx<R, B> {
+        ReportBuilderCtx {
             report_builder,
             _phantom: PhantomData,
         }
     }
 }
 
-impl<R: Report, B: ReportBuilder<R>> Debug for ParseCtx<R, B> {
+impl<R: Report, B: ReportBuilder<R>> Debug for ReportBuilderCtx<R, B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ParseCtx")
+        f.debug_struct("ReportBuilderCtx")
             //            .field("report_builder", &self.report_builder)
             .finish()
     }
 }
-
-pub type ReportOutputStream<S, R, B> = Stateful<S, ParseCtx<R, B>>;
 
 /// Characters considered whitespace for the `ws` parser.
 const WHITESPACE: &[char] = &[' ', '\t', '\n', '\r'];
