@@ -18,6 +18,7 @@ use crate::{
 #[derive(PartialEq, Debug)]
 struct ChunkCtx {
     index: u32,
+    current_line: u32,
 }
 
 #[derive(PartialEq)]
@@ -43,7 +44,10 @@ impl<R: Report, B: ReportBuilder<R>> ParseCtx<R, B> {
                 report_builder,
                 _phantom: PhantomData,
             },
-            chunk: ChunkCtx { index: 0 },
+            chunk: ChunkCtx {
+                index: 0,
+                current_line: 0,
+            },
             report_json_files,
             report_json_sessions,
         }
@@ -396,6 +400,7 @@ pub fn report_line<'a, S: StrStream, R: Report, B: ReportBuilder<R>>(
 where
     S: Stream<Slice = &'a str>,
 {
+    buf.state.chunk.current_line += 1;
     seq! {ReportLine {
         _: '[',
         coverage: coverage,
@@ -428,8 +433,12 @@ where
     S: Stream<Slice = &'a str>,
 {
     buf.state.chunk.index += 1; // nyeh nyeh nyeh
-    let _: PResult<Vec<_>> =
-        preceded(opt((chunk_header, '\n')), separated(0.., report_line, '\n')).parse_next(buf);
+    buf.state.chunk.current_line = 0;
+    let _: PResult<Vec<_>> = preceded(
+        opt((chunk_header, '\n')),
+        separated(0.., opt(report_line), '\n'),
+    )
+    .parse_next(buf);
     Ok(())
 }
 
