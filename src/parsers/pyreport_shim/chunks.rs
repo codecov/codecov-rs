@@ -336,12 +336,12 @@ where
 /// label with an index found in the chunks file header. Older reports stored
 /// many copies of the full strings.
 #[derive(Clone)]
-pub enum Label {
+pub enum RawLabel {
     LabelId(u32),
     LabelName(String),
 }
 
-/// Parses an individual [`Label`] in a [`CoverageDatapoint`].
+/// Parses an individual [`RawLabel`] in a [`CoverageDatapoint`].
 ///
 /// Examples:
 /// - `"Th2dMtk4M_codecov"`
@@ -350,12 +350,34 @@ pub enum Label {
 /// - `5`
 pub fn label<S: StrStream, R: Report, B: ReportBuilder<R>>(
     buf: &mut ReportOutputStream<S, R, B>,
-) -> PResult<Label> {
-    alt((
-        parse_u32.map(Label::LabelId),
-        parse_str.map(Label::LabelName),
+) -> PResult<String> {
+    let raw_label = alt((
+        parse_u32.map(RawLabel::LabelId),
+        parse_str.map(RawLabel::LabelName),
     ))
-    .parse_next(buf)
+    .parse_next(buf)?;
+
+    let labels_index_key = match raw_label {
+        RawLabel::LabelId(id) => id.to_string(),
+        RawLabel::LabelName(name) => name,
+    };
+
+    match buf.state.labels_index.get(&labels_index_key) {
+        Some(_) => Ok(labels_index_key),
+        None => {
+            let context = Context {
+                id: None,
+                context_type: ContextType::TestCase,
+                name: labels_index_key.clone(),
+            };
+            // TODO handle error
+            let context = buf.state.db.report_builder.insert_context(context).unwrap();
+            buf.state
+                .labels_index
+                .insert(context.name, context.id.unwrap());
+            Ok(labels_index_key)
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -363,7 +385,7 @@ pub struct CoverageDatapoint {
     session_id: u32,
     coverage: PyreportCoverage,
     coverage_type: Option<CoverageType>,
-    labels: Vec<Label>,
+    labels: Vec<String>,
 }
 
 pub fn coverage_datapoint<S: StrStream, R: Report, B: ReportBuilder<R>>(
