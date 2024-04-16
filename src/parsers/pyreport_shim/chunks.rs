@@ -414,6 +414,44 @@ pub struct ReportLine {
     datapoints: Option<Option<Vec<CoverageDatapoint>>>,
 }
 
+/// Account for quirks and malformed data that have been root-caused.
+fn normalize_report_line(report_line: &mut ReportLine) {
+    match (&report_line.coverage, &report_line.coverage_type) {
+        // Clojure uses `true` to indicate partial coverage without giving any specific information
+        // about the missed/covered branches. Our parsers for other formats just make up "1/2" and
+        // move on, so we do that here as well.
+        (PyreportCoverage::Partial(), _) => {
+            report_line.coverage = PyreportCoverage::BranchesTaken(1, 2);
+        }
+
+        // For method coverage, Jacoco contains aggregated instruction coverage, branch coverage,
+        // and cyclomatic complexity metrics. If the branch coverage fields are present and
+        // non-zero, our parser will prefer them even though method coverage should be an int.
+        // We normalize by treating the numerator of the branch coverage as a hit count, so "0/2"
+        // is a miss but "3/4" is 3 hits. Not great, but the data is bugged to begin with.
+        (PyreportCoverage::BranchesTaken(covered, _), CoverageType::Method) => {
+            report_line.coverage = PyreportCoverage::HitCount(*covered);
+        }
+
+        // Our Go parser does not properly fill out the `coverage_type` field. If the `coverage`
+        // field has branch data in it, override the coverage type.
+        (PyreportCoverage::BranchesTaken(_, _), CoverageType::Line) => {
+            report_line.coverage_type = CoverageType::Branch;
+        }
+
+        // We see some instances of Scale Scoverage reports being incorrectly translated into
+        // Cobertura reports. In Scoverage, 0 for branch coverage means miss, 1 means partial, and
+        // 2 means hit. It seems when converting to Cobertura, the value is taken as a raw hit
+        // count and not coverted to `branch-rate` or something, and our Cobertura parser doesn't
+        // handle it. So, we handle it here.
+        (PyreportCoverage::HitCount(n), CoverageType::Branch) => {
+            assert!(*n == 0 || *n == 1 || *n == 2); // TODO soften assert
+            report_line.coverage = PyreportCoverage::BranchesTaken(*n, 2);
+        }
+        (_, _) => {}
+    }
+}
+
 /// TODO override the coverage type
 /// This is probably where we cut and insert
 pub fn report_line<'a, S: StrStream, R: Report, B: ReportBuilder<R>>(
@@ -423,7 +461,7 @@ where
     S: Stream<Slice = &'a str>,
 {
     buf.state.chunk.current_line += 1;
-    seq! {ReportLine {
+    let mut report_line = seq! {ReportLine {
         _: '[',
         coverage: coverage,
         _: (ws, ',', ws),
@@ -438,7 +476,10 @@ where
         datapoints: opt(nullable(preceded('[', terminated(separated(0.., coverage_datapoint, (ws, ',', ws)), ']')))),
         _: ']',
     }}
-    .parse_next(buf)
+    .parse_next(buf)?;
+
+    normalize_report_line(&mut report_line);
+    Ok(report_line)
 }
 
 /// TODO verify keys are what we expect
