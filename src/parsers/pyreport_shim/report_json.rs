@@ -81,7 +81,7 @@ pub type ReportOutputStream<S, R, B> = Stateful<S, ReportBuilderCtx<R, B>>;
 /// ```
 pub fn report_file<S: StrStream, R: Report, B: ReportBuilder<R>>(
     buf: &mut ReportOutputStream<S, R, B>,
-) -> PResult<(usize, i32)> {
+) -> PResult<(usize, i64)> {
     let (filename, file_summary) = preceded(ws, terminated(parse_kv, ws)).parse_next(buf)?;
 
     let JsonVal::Array(vals) = file_summary else {
@@ -92,15 +92,10 @@ pub fn report_file<S: StrStream, R: Report, B: ReportBuilder<R>>(
         return Err(ErrMode::Cut(ContextError::new()));
     };
 
-    let file = models::SourceFile {
-        id: None,
-        path: filename,
-    };
     // TODO handle converting between error types
-    let file = buf.state.report_builder.insert_file(file).unwrap();
+    let file = buf.state.report_builder.insert_file(filename).unwrap();
 
-    // TODO handle error
-    Ok((*chunks_index as usize, file.id.unwrap()))
+    Ok((*chunks_index as usize, file.id))
 }
 
 /// Parses a key-value pair where the key is a session index and the value is an
@@ -173,7 +168,7 @@ pub fn report_file<S: StrStream, R: Report, B: ReportBuilder<R>>(
 /// ```
 pub fn report_session<S: StrStream, R: Report, B: ReportBuilder<R>>(
     buf: &mut ReportOutputStream<S, R, B>,
-) -> PResult<(usize, i32)> {
+) -> PResult<(usize, i64)> {
     let (session_index, encoded_session) =
         preceded(ws, terminated(parse_kv, ws)).parse_next(buf)?;
 
@@ -188,23 +183,22 @@ pub fn report_session<S: StrStream, R: Report, B: ReportBuilder<R>>(
         return Err(ErrMode::Cut(ContextError::new()));
     };
 
-    let context = models::Context {
-        id: None,
-        context_type: models::ContextType::Upload,
-        name: name.clone(),
-    };
     // TODO handle error
-    let context = buf.state.report_builder.insert_context(context).unwrap();
+    let context = buf
+        .state
+        .report_builder
+        .insert_context(models::ContextType::Upload, name)
+        .unwrap();
 
     // TODO handle error
-    Ok((session_index, context.id.unwrap()))
+    Ok((session_index, context.id))
 }
 
 /// Parses the JSON object that corresponds to the "files" key. Because there
 /// could be many files, we parse each key/value pair one at a time.
 pub fn report_files_dict<S: StrStream, R: Report, B: ReportBuilder<R>>(
     buf: &mut ReportOutputStream<S, R, B>,
-) -> PResult<HashMap<usize, i32>> {
+) -> PResult<HashMap<usize, i64>> {
     cut_err(preceded(
         (ws, '{', ws),
         terminated(separated(0.., report_file, (ws, ',', ws)), (ws, '}', ws)),
@@ -216,7 +210,7 @@ pub fn report_files_dict<S: StrStream, R: Report, B: ReportBuilder<R>>(
 /// could be many sessions, we parse each key/value pair one at a time.
 pub fn report_sessions_dict<S: StrStream, R: Report, B: ReportBuilder<R>>(
     buf: &mut ReportOutputStream<S, R, B>,
-) -> PResult<HashMap<usize, i32>> {
+) -> PResult<HashMap<usize, i64>> {
     cut_err(preceded(
         (ws, '{', ws),
         terminated(separated(0.., report_session, (ws, ',', ws)), (ws, '}', ws)),
@@ -248,7 +242,7 @@ pub fn report_sessions_dict<S: StrStream, R: Report, B: ReportBuilder<R>>(
 /// - [`Session`](https://github.com/codecov/shared/blob/e97a9f422a6e224b315d6dc3821f9f5ebe9b2ddd/shared/utils/sessions.py#L111-L128O)
 pub fn parse_report_json<S: StrStream, R: Report, B: ReportBuilder<R>>(
     buf: &mut ReportOutputStream<S, R, B>,
-) -> PResult<(HashMap<usize, i32>, HashMap<usize, i32>)> {
+) -> PResult<(HashMap<usize, i64>, HashMap<usize, i64>)> {
     let parse_files = preceded(
         specific_key("files"),
         terminated(report_files_dict, (ws, ',', ws)),
@@ -277,6 +271,10 @@ mod tests {
         parse_ctx: ReportBuilderCtx<MockReport, MockReportBuilder<MockReport>>,
     }
 
+    fn hash_id(path: &str) -> i64 {
+        seahash::hash(path.as_bytes()) as i64
+    }
+
     fn setup() -> Ctx {
         let report_builder = MockReportBuilder::new();
         let parse_ctx = ReportBuilderCtx {
@@ -290,27 +288,23 @@ mod tests {
     mod report_json {
         use super::*;
 
-        fn test_report_file(path: &str, input: &str) -> PResult<(usize, i32)> {
+        fn test_report_file(path: &str, input: &str) -> PResult<(usize, i64)> {
             let ctx = setup();
             let mut buf = TestStream {
                 input,
                 state: ctx.parse_ctx,
             };
 
-            let expected_file = models::SourceFile {
-                id: None,
-                path: path.to_string(),
-            };
-            let inserted_file = models::SourceFile {
-                id: Some(1),
+            let inserted_model = models::SourceFile {
+                id: hash_id(path),
                 path: path.to_string(),
             };
 
             buf.state
                 .report_builder
                 .expect_insert_file()
-                .with(eq(expected_file))
-                .return_once(move |_| Ok(inserted_file));
+                .with(eq(path.to_string()))
+                .return_once(move |_| Ok(inserted_model));
 
             report_file.parse_next(&mut buf)
         }
@@ -319,7 +313,7 @@ mod tests {
         fn test_report_file_simple_valid_case() {
             assert_eq!(
                 test_report_file("src/report.rs", "\"src/report.rs\": [0, [], {}, null]",),
-                Ok((0, 1))
+                Ok((0, hash_id("src/report.rs")))
             );
         }
 
@@ -366,20 +360,15 @@ mod tests {
             );
         }
 
-        fn test_report_session(name: &str, input: &str) -> PResult<(usize, i32)> {
+        fn test_report_session(name: &str, input: &str) -> PResult<(usize, i64)> {
             let ctx = setup();
             let mut buf = TestStream {
                 input,
                 state: ctx.parse_ctx,
             };
 
-            let expected_context = models::Context {
-                id: None,
-                context_type: models::ContextType::Upload,
-                name: name.to_string(),
-            };
-            let inserted_context = models::Context {
-                id: Some(1),
+            let inserted_model = models::Context {
+                id: hash_id(name),
                 context_type: models::ContextType::Upload,
                 name: name.to_string(),
             };
@@ -387,8 +376,8 @@ mod tests {
             buf.state
                 .report_builder
                 .expect_insert_context()
-                .with(eq(expected_context))
-                .return_once(move |_| Ok(inserted_context));
+                .with(eq(models::ContextType::Upload), eq(name.to_string()))
+                .return_once(move |_, _| Ok(inserted_model));
 
             report_session.parse_next(&mut buf)
         }
@@ -397,7 +386,7 @@ mod tests {
         fn test_report_session_simple_valid_case() {
             assert_eq!(
                 test_report_session("codecov-rs CI", "\"0\": {\"j\": \"codecov-rs CI\"}",),
-                Ok((0, 1))
+                Ok((0, hash_id("codecov-rs CI")))
             );
         }
 
@@ -449,26 +438,22 @@ mod tests {
             );
         }
 
-        fn test_report_files_dict(paths: &[&str], input: &str) -> PResult<HashMap<usize, i32>> {
+        fn test_report_files_dict(paths: &[&str], input: &str) -> PResult<HashMap<usize, i64>> {
             let ctx = setup();
             let mut buf = TestStream {
                 input,
                 state: ctx.parse_ctx,
             };
 
-            for (i, path) in paths.iter().enumerate() {
-                let expected_file = models::SourceFile {
-                    id: None,
-                    path: path.to_string(),
-                };
+            for path in paths.iter() {
                 let inserted_file = models::SourceFile {
-                    id: Some(i as i32),
+                    id: hash_id(path),
                     path: path.to_string(),
                 };
                 buf.state
                     .report_builder
                     .expect_insert_file()
-                    .with(eq(expected_file))
+                    .with(eq(path.to_string()))
                     .return_once(move |_| Ok(inserted_file));
             }
 
@@ -482,7 +467,7 @@ mod tests {
                     &["src/report.rs"],
                     "{\"src/report.rs\": [0, [], {}, null]}",
                 ),
-                Ok(HashMap::from([(0, 0)]))
+                Ok(HashMap::from([(0, hash_id("src/report.rs"))]))
             );
         }
 
@@ -491,7 +476,7 @@ mod tests {
             assert_eq!(test_report_files_dict(
                 &["src/report.rs", "src/report/models.rs"],
                 "{\"src/report.rs\": [0, [], {}, null], \"src/report/models.rs\": [1, [], {}, null]}",
-            ), Ok(HashMap::from([(0, 0), (1, 1)])));
+            ), Ok(HashMap::from([(0, hash_id("src/report.rs")), (1, hash_id("src/report/models.rs"))])));
         }
 
         #[test]
@@ -509,7 +494,7 @@ mod tests {
             assert_eq!(test_report_files_dict(
                 &["src/report.rs", "src/report/models.rs"],
                 "{\"src/report.rs\": [0, [], {}, null], \"src/report/models.rs\": [0, [], {}, null]}",
-            ), Ok(HashMap::from([(0, 1)])));
+            ), Ok(HashMap::from([(0, hash_id("src/report/models.rs"))])));
         }
 
         #[test]
@@ -544,29 +529,24 @@ mod tests {
             assert_eq!(test_report_files_dict(&[], "{}",), Ok(HashMap::new()));
         }
 
-        fn test_report_sessions_dict(names: &[&str], input: &str) -> PResult<HashMap<usize, i32>> {
+        fn test_report_sessions_dict(names: &[&str], input: &str) -> PResult<HashMap<usize, i64>> {
             let ctx = setup();
             let mut buf = TestStream {
                 input,
                 state: ctx.parse_ctx,
             };
 
-            for (i, name) in names.iter().enumerate() {
-                let expected_context = models::Context {
-                    id: None,
-                    context_type: models::ContextType::Upload,
-                    name: name.to_string(),
-                };
+            for name in names.iter() {
                 let inserted_context = models::Context {
-                    id: Some(i as i32),
+                    id: hash_id(name),
                     context_type: models::ContextType::Upload,
                     name: name.to_string(),
                 };
                 buf.state
                     .report_builder
                     .expect_insert_context()
-                    .with(eq(expected_context))
-                    .return_once(move |_| Ok(inserted_context));
+                    .with(eq(models::ContextType::Upload), eq(name.to_string()))
+                    .return_once(move |_, _| Ok(inserted_context));
             }
 
             report_sessions_dict.parse_next(&mut buf)
@@ -579,7 +559,7 @@ mod tests {
                     &["codecov-rs CI"],
                     "{\"0\": {\"j\": \"codecov-rs CI\"}}",
                 ),
-                Ok(HashMap::from([(0, 0)]))
+                Ok(HashMap::from([(0, hash_id("codecov-rs CI"))]))
             );
         }
 
@@ -590,7 +570,10 @@ mod tests {
                     &["codecov-rs CI", "codecov-rs CI 2"],
                     "{\"0\": {\"j\": \"codecov-rs CI\"}, \"1\": {\"j\": \"codecov-rs CI 2\"}}",
                 ),
-                Ok(HashMap::from([(0, 0), (1, 1)]))
+                Ok(HashMap::from([
+                    (0, hash_id("codecov-rs CI")),
+                    (1, hash_id("codecov-rs CI 2"))
+                ]))
             );
         }
 
@@ -614,7 +597,7 @@ mod tests {
                     &["codecov-rs CI", "codecov-rs CI 2"],
                     "{\"0\": {\"j\": \"codecov-rs CI\"}, \"0\": {\"j\": \"codecov-rs CI 2\"}}",
                 ),
-                Ok(HashMap::from([(0, 1)]))
+                Ok(HashMap::from([(0, hash_id("codecov-rs CI 2"))]))
             );
         }
 
@@ -660,45 +643,36 @@ mod tests {
             paths: &[&str],
             session_names: &[&str],
             input: &str,
-        ) -> PResult<(HashMap<usize, i32>, HashMap<usize, i32>)> {
+        ) -> PResult<(HashMap<usize, i64>, HashMap<usize, i64>)> {
             let ctx = setup();
             let mut buf = TestStream {
                 input,
                 state: ctx.parse_ctx,
             };
 
-            for (i, path) in paths.iter().enumerate() {
-                let expected_file = models::SourceFile {
-                    id: None,
-                    path: path.to_string(),
-                };
+            for path in paths.iter() {
                 let inserted_file = models::SourceFile {
-                    id: Some(i as i32),
+                    id: hash_id(path),
                     path: path.to_string(),
                 };
                 buf.state
                     .report_builder
                     .expect_insert_file()
-                    .with(eq(expected_file))
+                    .with(eq(path.to_string()))
                     .return_once(move |_| Ok(inserted_file));
             }
 
-            for (i, name) in session_names.iter().enumerate() {
-                let expected_context = models::Context {
-                    id: None,
-                    context_type: models::ContextType::Upload,
-                    name: name.to_string(),
-                };
+            for name in session_names.iter() {
                 let inserted_context = models::Context {
-                    id: Some(i as i32),
+                    id: hash_id(name),
                     context_type: models::ContextType::Upload,
                     name: name.to_string(),
                 };
                 buf.state
                     .report_builder
                     .expect_insert_context()
-                    .with(eq(expected_context))
-                    .return_once(move |_| Ok(inserted_context));
+                    .with(eq(models::ContextType::Upload), eq(name.to_string()))
+                    .return_once(move |_, _| Ok(inserted_context));
             }
 
             parse_report_json.parse_next(&mut buf)
@@ -710,7 +684,7 @@ mod tests {
                 &["src/report.rs"],
                 &["codecov-rs CI"],
                 "{\"files\": {\"src/report.rs\": [0, {}, [], null]}, \"sessions\": {\"0\": {\"j\": \"codecov-rs CI\"}}}",
-            ), Ok((HashMap::from([(0, 0)]), HashMap::from([(0, 0)]))));
+            ), Ok((HashMap::from([(0, hash_id("src/report.rs"))]), HashMap::from([(0, hash_id("codecov-rs CI"))]))));
         }
 
         #[test]
@@ -719,7 +693,7 @@ mod tests {
                 &["src/report.rs", "src/report/models.rs"],
                 &["codecov-rs CI", "codecov-rs CI 2"],
                 "{\"files\": {\"src/report.rs\": [0, {}, [], null], \"src/report/models.rs\": [1, {}, [], null]}, \"sessions\": {\"0\": {\"j\": \"codecov-rs CI\"}, \"1\": {\"j\": \"codecov-rs CI 2\"}}}",
-            ), Ok((HashMap::from([(0, 0), (1, 1)]), HashMap::from([(0, 0), (1, 1)]))));
+            ), Ok((HashMap::from([(0, hash_id("src/report.rs")), (1, hash_id("src/report/models.rs"))]), HashMap::from([(0, hash_id("codecov-rs CI")), (1, hash_id("codecov-rs CI 2"))]))));
         }
 
         #[test]
@@ -728,7 +702,7 @@ mod tests {
                 &[],
                 &["codecov-rs CI", "codecov-rs CI 2"],
                 "{\"files\": {}, \"sessions\": {\"0\": {\"j\": \"codecov-rs CI\"}, \"1\": {\"j\": \"codecov-rs CI 2\"}}}",
-            ), Ok((HashMap::new(), HashMap::from([(0, 0), (1, 1)]))));
+            ), Ok((HashMap::new(), HashMap::from([(0, hash_id("codecov-rs CI")), (1, hash_id("codecov-rs CI 2"))]))));
         }
 
         #[test]
@@ -737,7 +711,7 @@ mod tests {
                 &["src/report.rs", "src/report/models.rs"],
                 &[],
                 "{\"files\": {\"src/report.rs\": [0, {}, [], null], \"src/report/models.rs\": [1, {}, [], null]}, \"sessions\": {}}",
-            ), Ok((HashMap::from([(0, 0), (1, 1)]), HashMap::new())));
+            ), Ok((HashMap::from([(0, hash_id("src/report.rs")), (1, hash_id("src/report/models.rs"))]), HashMap::new())));
         }
 
         #[test]

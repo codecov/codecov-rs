@@ -4,6 +4,7 @@ use include_dir::{include_dir, Dir};
 use lazy_static::lazy_static;
 use rusqlite::{Connection, Result};
 use rusqlite_migration::Migrations;
+use uuid::Uuid;
 
 use crate::report::{models, Report, ReportBuilder};
 
@@ -91,12 +92,13 @@ impl SqliteReportBuilder {
 }
 
 impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
-    fn insert_file(&mut self, file: models::SourceFile) -> Result<models::SourceFile> {
+    fn insert_file(&mut self, path: String) -> Result<models::SourceFile> {
         let mut stmt = self
             .conn
             // TODO: memoize prepared statements
-            .prepare("INSERT INTO source_file (path) VALUES (?1) RETURNING id, path")?;
-        stmt.query_row([file.path], |row| {
+            .prepare("INSERT INTO source_file (id, path) VALUES (?1, ?2) RETURNING id, path")?;
+
+        stmt.query_row((seahash::hash(path.as_bytes()) as i64, path), |row| {
             Ok(models::SourceFile {
                 id: row.get(0)?,
                 path: row.get(1)?,
@@ -104,98 +106,199 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
         })
     }
 
-    fn insert_context(&mut self, context: models::Context) -> Result<models::Context> {
+    fn insert_context(
+        &mut self,
+        context_type: models::ContextType,
+        name: &str,
+    ) -> Result<models::Context> {
         // TODO: memoize prepared statements
-        let mut stmt = self.conn.prepare("INSERT INTO context (context_type, name) VALUES (?1, ?2) RETURNING id, context_type, name")?;
-        stmt.query_row([context.context_type.to_string(), context.name], |row| {
-            Ok(models::Context {
-                id: row.get(0)?,
-                context_type: row.get(1)?,
-                name: row.get(2)?,
-            })
-        })
+        let mut stmt = self.conn.prepare("INSERT INTO context (id, context_type, name) VALUES (?1, ?2, ?3) RETURNING id, context_type, name")?;
+        stmt.query_row(
+            (
+                seahash::hash(name.as_bytes()) as i64,
+                context_type.to_string(),
+                name,
+            ),
+            |row| {
+                Ok(models::Context {
+                    id: row.get(0)?,
+                    context_type: row.get(1)?,
+                    name: row.get(2)?,
+                })
+            },
+        )
     }
 
-    fn insert_line(
+    fn insert_coverage_sample(
         &mut self,
-        line: models::LineStatus,
-        context: &models::Context,
-    ) -> Result<models::LineStatus> {
-        // TODO: memoize prepared statements
-        let mut stmt = self.conn.prepare("INSERT INTO line_status (source_file_id, line_no, coverage_status) VALUES (?1, ?2, ?3) RETURNING id, source_file_id, line_no, coverage_status")?;
-        let line = stmt.query_row(
-            [
-                line.source_file_id,
-                line.line_no,
-                line.coverage_status as i32,
-            ],
+        source_file_id: i64,
+        line_no: i64,
+        coverage_type: models::CoverageType,
+        hits: Option<i64>,
+        hit_branches: Option<i64>,
+        total_branches: Option<i64>,
+    ) -> Result<models::CoverageSample> {
+        let mut stmt = self.conn.prepare("INSERT INTO coverage_sample (id, source_file_id, line_no, coverage_type, hits, hit_branches, total_branches) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) RETURNING id, source_file_id, line_no, coverage_type, hits, hit_branches, total_branches")?;
+        stmt.query_row(
+            (
+                Uuid::new_v4(),
+                source_file_id,
+                line_no,
+                coverage_type,
+                hits,
+                hit_branches,
+                total_branches,
+            ),
             |row| {
-                Ok(models::LineStatus {
+                Ok(models::CoverageSample {
                     id: row.get(0)?,
                     source_file_id: row.get(1)?,
                     line_no: row.get(2)?,
-                    coverage_status: row.get(3)?,
+                    coverage_type: row.get(3)?,
+                    hits: row.get(4)?,
+                    hit_branches: row.get(5)?,
+                    total_branches: row.get(6)?,
                 })
             },
-        )?;
-
-        match (line.id, context.id) {
-            (Some(line_id), Some(context_id)) => {
-                let mut context_assoc = self
-                    .conn
-                    // TODO: memoize prepared statements
-                    .prepare("INSERT INTO context_assoc (context_id, line_id) VALUES (?1, ?2)")?;
-                context_assoc.execute([context_id, line_id])?;
-                Ok(line)
-            }
-            _ => {
-                // TODO create an error type since there isn't a corresponding rusqlite::Error
-                // type
-                panic!("missing line.id and/or context.id");
-            }
-        }
+        )
     }
 
-    fn insert_branch(
+    fn insert_branches_data(
         &mut self,
-        branch: models::BranchStatus,
-        context: &models::Context,
-    ) -> Result<models::BranchStatus> {
-        // TODO: memoize prepared statements
-        let mut stmt = self.conn.prepare("INSERT INTO branch_status (source_file_id, start_line_no, end_line_no, coverage_status) VALUES (?1, ?2, ?3, ?4) RETURNING id, source_file_id, start_line_no, end_line_no, coverage_status")?;
-        let branch = stmt.query_row(
-            [
-                branch.source_file_id,
-                branch.start_line_no,
-                branch.end_line_no,
-                branch.coverage_status as i32,
-            ],
+        source_file_id: i64,
+        sample_id: Uuid,
+        hits: i64,
+        branch_format: models::BranchFormat,
+        branch: String,
+    ) -> Result<models::BranchesData> {
+        let mut stmt = self.conn.prepare("INSERT INTO branches_data (id, source_file_id, sample_id, hits, branch_format, branch) VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id, source_file_id, sample_id, hits, branch_format, branch")?;
+
+        stmt.query_row(
+            (
+                Uuid::new_v4(),
+                source_file_id,
+                sample_id,
+                hits,
+                branch_format,
+                branch,
+            ),
             |row| {
-                Ok(models::BranchStatus {
+                Ok(models::BranchesData {
                     id: row.get(0)?,
                     source_file_id: row.get(1)?,
-                    start_line_no: row.get(2)?,
-                    end_line_no: row.get(3)?,
-                    coverage_status: row.get(4)?,
+                    sample_id: row.get(2)?,
+                    hits: row.get(3)?,
+                    branch_format: row.get(4)?,
+                    branch: row.get(5)?,
                 })
             },
-        )?;
+        )
+    }
 
-        match (branch.id, context.id) {
-            (Some(branch_id), Some(context_id)) => {
-                let mut context_assoc = self
-                    .conn
-                    // TODO: memoize prepared statements
-                    .prepare("INSERT INTO context_assoc (context_id, branch_id) VALUES (?1, ?2)")?;
-                context_assoc.execute([context_id, branch_id])?;
-                Ok(branch)
-            }
-            _ => {
-                // TODO create an error type since there isn't a corresponding rusqlite::Error
-                // type
-                panic!("missing branch.id and/or context.id");
-            }
-        }
+    fn insert_method_data(
+        &mut self,
+        source_file_id: i64,
+        sample_id: Option<Uuid>,
+        line_no: Option<i64>,
+        hit_branches: Option<i64>,
+        total_branches: Option<i64>,
+        hit_complexity_paths: Option<i64>,
+        total_complexity: Option<i64>,
+    ) -> Result<models::MethodData> {
+        let mut stmt = self.conn.prepare("INSERT INTO method_data (id, source_file_id, sample_id, line_no, hit_branches, total_branches, hit_complexity_paths, total_complexity) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) RETURNING id, source_file_id, sample_id, line_no, hit_branches, total_branches, hit_complexity_paths, total_complexity")?;
+
+        stmt.query_row(
+            (
+                Uuid::new_v4(),
+                source_file_id,
+                sample_id,
+                line_no,
+                hit_branches,
+                total_branches,
+                hit_complexity_paths,
+                total_complexity,
+            ),
+            |row| {
+                Ok(models::MethodData {
+                    id: row.get(0)?,
+                    source_file_id: row.get(1)?,
+                    sample_id: row.get(2)?,
+                    line_no: row.get(3)?,
+                    hit_branches: row.get(4)?,
+                    total_branches: row.get(5)?,
+                    hit_complexity_paths: row.get(6)?,
+                    total_complexity: row.get(7)?,
+                })
+            },
+        )
+    }
+
+    fn insert_span_data(
+        &mut self,
+        source_file_id: i64,
+        sample_id: Option<Uuid>,
+        hits: i64,
+        start_line: Option<i64>,
+        start_col: Option<i64>,
+        end_line: Option<i64>,
+        end_col: Option<i64>,
+    ) -> Result<models::SpanData> {
+        let mut stmt = self.conn.prepare("INSERT INTO span_data (id, source_file_id, sample_id, hits, start_line, start_col, end_line, end_col) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) RETURNING id, source_file_id, sample_id, hits, start_line, start_col, end_line, end_col")?;
+
+        stmt.query_row(
+            (
+                Uuid::new_v4(),
+                source_file_id,
+                sample_id,
+                hits,
+                start_line,
+                start_col,
+                end_line,
+                end_col,
+            ),
+            |row| {
+                Ok(models::SpanData {
+                    id: row.get(0)?,
+                    source_file_id: row.get(1)?,
+                    sample_id: row.get(2)?,
+                    hits: row.get(3)?,
+                    start_line: row.get(4)?,
+                    start_col: row.get(5)?,
+                    end_line: row.get(6)?,
+                    end_col: row.get(7)?,
+                })
+            },
+        )
+    }
+
+    fn associate_context<'a>(
+        &mut self,
+        context_id: i64,
+        sample: Option<&'a models::CoverageSample>,
+        branches_data: Option<&'a models::BranchesData>,
+        method_data: Option<&'a models::MethodData>,
+        span_data: Option<&'a models::SpanData>,
+    ) -> Result<models::ContextAssoc> {
+        let mut stmt = self.conn.prepare("INSERT INTO context_assoc (context_id, sample_id, branch_id, method_id, span_id) VALUES (?1, ?2, ?3, ?4, ?5) RETURNING context_id, sample_id, branch_id, method_id, span_id")?;
+
+        stmt.query_row(
+            (
+                context_id,
+                sample.map(|s| s.id),
+                branches_data.map(|b| b.id),
+                method_data.map(|m| m.id),
+                span_data.map(|s| s.id),
+            ),
+            |row| {
+                Ok(models::ContextAssoc {
+                    context_id: row.get(0)?,
+                    sample_id: row.get(1)?,
+                    branch_id: row.get(2)?,
+                    method_id: row.get(3)?,
+                    span_id: row.get(4)?,
+                })
+            },
+        )
     }
 
     fn build(self) -> SqliteReport {
@@ -253,7 +356,7 @@ mod tests {
         }
 
         let conn = open_database(&db_file);
-        let (id, path): (i32, String) = conn
+        let (id, path): (i64, String) = conn
             .query_row("SELECT id, path FROM source_file", [], |row| {
                 Ok((row.get(0).unwrap(), row.get(1).unwrap()))
             })
@@ -282,6 +385,10 @@ mod tests {
     mod sqlite_report_builder {
         use super::*;
 
+        fn hash_id(key: &str) -> i64 {
+            seahash::hash(key.as_bytes()) as i64
+        }
+
         #[test]
         fn test_new_report_builder_runs_migrations() {
             let ctx = setup();
@@ -301,15 +408,14 @@ mod tests {
             let db_file = ctx.temp_dir.path().join("db.sqlite");
             let mut report_builder = SqliteReportBuilder::new(db_file);
 
-            let file = models::SourceFile {
-                id: None,
+            let expected_file = models::SourceFile {
+                id: hash_id("src/report.rs"),
                 path: "src/report.rs".to_string(),
             };
-            let file = report_builder
-                .insert_file(file)
+            let actual_file = report_builder
+                .insert_file(expected_file.path.clone())
                 .expect("error inserting file");
-            assert_eq!(file.id, Some(1));
-            assert_eq!(file.path, "src/report.rs");
+            assert_eq!(actual_file, expected_file);
         }
 
         #[test]
@@ -318,125 +424,261 @@ mod tests {
             let db_file = ctx.temp_dir.path().join("db.sqlite");
             let mut report_builder = SqliteReportBuilder::new(db_file);
 
-            let context = models::Context {
-                id: None,
+            let expected_context = models::Context {
+                id: hash_id("foo"),
                 context_type: models::ContextType::Upload,
                 name: "foo".to_string(),
             };
-            let context = report_builder
-                .insert_context(context)
+            let actual_context = report_builder
+                .insert_context(expected_context.context_type, &expected_context.name)
                 .expect("error inserting context");
-            assert_eq!(context.id, Some(1));
-            assert_eq!(context.context_type, models::ContextType::Upload);
-            assert_eq!(context.name, "foo");
+            assert_eq!(actual_context, expected_context);
         }
 
         #[test]
-        fn test_insert_line() {
+        fn test_insert_coverage_sample() {
             let ctx = setup();
             let db_file = ctx.temp_dir.path().join("db.sqlite");
             let mut report_builder = SqliteReportBuilder::new(db_file);
 
-            let context = models::Context {
-                id: None,
-                context_type: models::ContextType::Upload,
-                name: "foo".to_string(),
-            };
-            let context = report_builder
-                .insert_context(context)
-                .expect("error inserting context");
-
-            let file = models::SourceFile {
-                id: None,
-                path: "src/report.rs".to_string(),
-            };
             let file = report_builder
-                .insert_file(file)
+                .insert_file("src/report.rs".to_string())
                 .expect("error inserting file");
 
-            let line = models::LineStatus {
-                id: None,
-                source_file_id: file.id.expect("failed to get file id"),
+            let mut expected_sample = models::CoverageSample {
+                id: Uuid::nil(), // Ignored
+                source_file_id: file.id,
                 line_no: 1,
-                coverage_status: models::CoverageStatus::Hit,
+                coverage_type: models::CoverageType::Line,
+                hits: Some(3),
+                hit_branches: Some(2),
+                total_branches: Some(4),
             };
-            let line = report_builder
-                .insert_line(line, &context)
+            let actual_sample = report_builder
+                .insert_coverage_sample(
+                    expected_sample.source_file_id,
+                    expected_sample.line_no,
+                    expected_sample.coverage_type,
+                    expected_sample.hits,
+                    expected_sample.hit_branches,
+                    expected_sample.total_branches,
+                )
                 .expect("error inserting line");
-            assert_eq!(line.id, Some(1));
-            assert_eq!(line.source_file_id, 1);
-            assert_eq!(line.line_no, 1);
-            assert_eq!(line.coverage_status, models::CoverageStatus::Hit);
-
-            let line_context_assoc = report_builder.conn.query_row(
-                "SELECT context_id, line_id FROM context_assoc WHERE context_id=?1 AND line_id=?2",
-                [context.id.unwrap(), line.id.unwrap()],
-                |row| {
-                    Ok(models::ContextAssoc {
-                        context_id: row.get(0)?,
-                        line_id: Some(row.get(1)?),
-                        branch_id: None,
-                    })
-                },
-            ).expect("error fetching context_assoc");
-            assert_eq!(line_context_assoc.context_id, context.id.unwrap());
-            assert_eq!(line_context_assoc.line_id, line.id);
-            assert_eq!(line_context_assoc.branch_id, None);
+            expected_sample.id = actual_sample.id.clone();
+            assert_eq!(actual_sample, expected_sample);
         }
 
         #[test]
-        fn test_insert_branch() {
+        fn test_insert_branches_data() {
             let ctx = setup();
             let db_file = ctx.temp_dir.path().join("db.sqlite");
             let mut report_builder = SqliteReportBuilder::new(db_file);
 
-            let context = models::Context {
-                id: None,
-                context_type: models::ContextType::Upload,
-                name: "foo".to_string(),
-            };
-            let context = report_builder
-                .insert_context(context)
-                .expect("error inserting context");
-
-            let file = models::SourceFile {
-                id: None,
-                path: "src/report.rs".to_string(),
-            };
             let file = report_builder
-                .insert_file(file)
+                .insert_file("src/report.rs".to_string())
                 .expect("error inserting file");
 
-            let branch = models::BranchStatus {
-                id: None,
-                source_file_id: file.id.expect("failed to get file id"),
-                start_line_no: 1,
-                end_line_no: 2,
-                coverage_status: models::CoverageStatus::Hit,
-            };
-            let branch = report_builder
-                .insert_branch(branch, &context)
-                .expect("error inserting branch");
-            assert_eq!(branch.id, Some(1));
-            assert_eq!(branch.source_file_id, 1);
-            assert_eq!(branch.start_line_no, 1);
-            assert_eq!(branch.end_line_no, 2);
-            assert_eq!(branch.coverage_status, models::CoverageStatus::Hit);
+            let coverage_sample = report_builder
+                .insert_coverage_sample(
+                    file.id,
+                    1, // line_no
+                    models::CoverageType::Branch,
+                    None,    // hits
+                    Some(2), // hit_branches
+                    Some(4), // total_branches
+                )
+                .expect("error inserting coverage sample");
 
-            let branch_context_assoc = report_builder.conn.query_row(
-                "SELECT context_id, branch_id FROM context_assoc WHERE context_id=?1 AND branch_id=?2",
-                [context.id.unwrap(), branch.id.unwrap()],
-                |row| {
-                    Ok(models::ContextAssoc {
-                        context_id: row.get(0)?,
-                        branch_id: Some(row.get(1)?),
-                        line_id: None,
-                    })
-                },
-            ).expect("error fetching context_assoc");
-            assert_eq!(branch_context_assoc.context_id, context.id.unwrap());
-            assert_eq!(branch_context_assoc.branch_id, branch.id);
-            assert_eq!(branch_context_assoc.line_id, None);
+            let mut expected_branch = models::BranchesData {
+                id: Uuid::nil(), // Ignored
+                source_file_id: file.id,
+                sample_id: coverage_sample.id,
+                hits: 0,
+                branch_format: models::BranchFormat::Condition,
+                branch: "0:jump".to_string(),
+            };
+            let actual_branch = report_builder
+                .insert_branches_data(
+                    expected_branch.source_file_id,
+                    expected_branch.sample_id,
+                    expected_branch.hits,
+                    expected_branch.branch_format,
+                    expected_branch.branch.clone(),
+                )
+                .expect("error inserting branches data");
+            expected_branch.id = actual_branch.id;
+            assert_eq!(actual_branch, expected_branch);
+        }
+
+        #[test]
+        fn test_insert_method_data() {
+            let ctx = setup();
+            let db_file = ctx.temp_dir.path().join("db.sqlite");
+            let mut report_builder = SqliteReportBuilder::new(db_file);
+
+            let file = report_builder
+                .insert_file("src/report.rs".to_string())
+                .expect("error inserting file");
+
+            let coverage_sample = report_builder
+                .insert_coverage_sample(
+                    file.id,
+                    1, // line_no
+                    models::CoverageType::Branch,
+                    None,    // hits
+                    Some(2), // hit_branches
+                    Some(4), // total_branches
+                )
+                .expect("error inserting coverage sample");
+
+            let mut expected_method = models::MethodData {
+                id: Uuid::nil(), // Ignored
+                source_file_id: file.id,
+                sample_id: Some(coverage_sample.id),
+                line_no: Some(1),
+                hit_branches: Some(1),
+                total_branches: Some(2),
+                hit_complexity_paths: Some(1),
+                total_complexity: Some(2),
+            };
+
+            let actual_method = report_builder
+                .insert_method_data(
+                    expected_method.source_file_id,
+                    expected_method.sample_id,
+                    expected_method.line_no,
+                    expected_method.hit_branches,
+                    expected_method.total_branches,
+                    expected_method.hit_complexity_paths,
+                    expected_method.total_complexity,
+                )
+                .expect("error inserting method data");
+            expected_method.id = actual_method.id;
+            assert_eq!(actual_method, expected_method);
+        }
+
+        #[test]
+        fn test_insert_span_data() {
+            let ctx = setup();
+            let db_file = ctx.temp_dir.path().join("db.sqlite");
+            let mut report_builder = SqliteReportBuilder::new(db_file);
+
+            let file = report_builder
+                .insert_file("src/report.rs".to_string())
+                .expect("error inserting file");
+
+            let coverage_sample = report_builder
+                .insert_coverage_sample(
+                    file.id,
+                    1, // line_no
+                    models::CoverageType::Branch,
+                    None,    // hits
+                    Some(2), // hit_branches
+                    Some(4), // total_branches
+                )
+                .expect("error inserting coverage sample");
+
+            let mut expected_span = models::SpanData {
+                id: Uuid::nil(), // Ignored
+                source_file_id: file.id,
+                sample_id: Some(coverage_sample.id),
+                hits: 2,
+                start_line: Some(1),
+                start_col: Some(0),
+                end_line: Some(30),
+                end_col: Some(60),
+            };
+            let actual_span = report_builder
+                .insert_span_data(
+                    expected_span.source_file_id,
+                    expected_span.sample_id,
+                    expected_span.hits,
+                    expected_span.start_line,
+                    expected_span.start_col,
+                    expected_span.end_line,
+                    expected_span.end_col,
+                )
+                .expect("error inserting span data");
+            expected_span.id = actual_span.id;
+            assert_eq!(actual_span, expected_span);
+        }
+
+        #[test]
+        fn test_insert_context_assoc() {
+            let ctx = setup();
+            let db_file = ctx.temp_dir.path().join("db.sqlite");
+            let mut report_builder = SqliteReportBuilder::new(db_file);
+
+            let file = report_builder
+                .insert_file("src/report.rs".to_string())
+                .expect("error inserting file");
+
+            let coverage_sample = report_builder
+                .insert_coverage_sample(
+                    file.id,
+                    1, // line_no
+                    models::CoverageType::Branch,
+                    None,    // hits
+                    Some(2), // hit_branches
+                    Some(4), // total_branches
+                )
+                .expect("error inserting coverage sample");
+
+            let branch = report_builder
+                .insert_branches_data(
+                    file.id,
+                    coverage_sample.id,
+                    0, // hits
+                    models::BranchFormat::Condition,
+                    "0:jump".to_string(),
+                )
+                .expect("error inserting branches data");
+
+            let method = report_builder
+                .insert_method_data(
+                    file.id,
+                    Some(coverage_sample.id),
+                    Some(1), // line_no
+                    Some(1), // hit_branches
+                    Some(2), // total_branches
+                    Some(1), // hit_complexity_paths
+                    Some(2), // total_complexity_paths
+                )
+                .expect("error inserting method data");
+
+            let span = report_builder
+                .insert_span_data(
+                    file.id,
+                    Some(coverage_sample.id),
+                    1,        // hits
+                    Some(1),  // start_line
+                    Some(0),  // start_col
+                    Some(30), // end_line
+                    Some(60), // end_col
+                )
+                .expect("error inserting span data");
+
+            let context = report_builder
+                .insert_context(models::ContextType::Upload, &"upload".to_string())
+                .expect("error inserting context");
+
+            let expected_assoc = models::ContextAssoc {
+                context_id: context.id,
+                sample_id: Some(coverage_sample.id),
+                branch_id: Some(branch.id),
+                method_id: Some(method.id),
+                span_id: Some(span.id),
+            };
+            let actual_assoc = report_builder
+                .associate_context(
+                    context.id,
+                    Some(&coverage_sample),
+                    Some(&branch),
+                    Some(&method),
+                    Some(&span),
+                )
+                .expect("error inserting assoc row");
+            assert_eq!(actual_assoc, expected_assoc);
         }
     }
 }
