@@ -1,2 +1,1 @@
-mod report_json;
-pub use report_json::*;
+pub mod report_json;
