@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use winnow::{
     ascii::float,
-    combinator::{alt, fold_repeat, preceded, separated, separated_pair, terminated},
+    combinator::{alt, delimited, fold_repeat, separated, separated_pair},
     error::ContextError,
     stream::Stream,
     token::none_of,
@@ -64,15 +64,13 @@ pub fn parse_char<S: StrStream>(buf: &mut S) -> PResult<char> {
 ///
 /// Characters are parsed with `parse_char` and thus may be escaped.
 pub fn parse_str<S: StrStream>(buf: &mut S) -> PResult<String> {
-    preceded(
+    delimited(
         '"',
-        terminated(
-            fold_repeat(0.., parse_char, String::new, |mut s, c| {
-                s.push(c);
-                s
-            }),
-            '"',
-        ),
+        fold_repeat(0.., parse_char, String::new, |mut s, c| {
+            s.push(c);
+            s
+        }),
+        '"',
     )
     .parse_next(buf)
 }
@@ -97,11 +95,7 @@ pub enum JsonVal {
 /// Parses a series of json objects between `[]`s and separated by a comma,
 /// returning a `Vec<JsonVal>`.
 pub fn parse_array<S: StrStream>(buf: &mut S) -> PResult<Vec<JsonVal>> {
-    preceded(
-        ('[', ws),
-        terminated(separated(0.., json_value, ','), (ws, ']')),
-    )
-    .parse_next(buf)
+    delimited(('[', ws), separated(0.., json_value, ','), (ws, ']')).parse_next(buf)
 }
 
 /// Parses a key-value pair separated by a `:`, returning the key and value in a
@@ -115,9 +109,10 @@ pub fn parse_kv<S: StrStream>(buf: &mut S) -> PResult<(String, JsonVal)> {
 /// Parses a series of key-value pairs separated by a ':' and surrounded by
 /// `{}`s, returning a `HashMap<String, JsonVal>`.
 pub fn parse_object<S: StrStream>(buf: &mut S) -> PResult<HashMap<String, JsonVal>> {
-    preceded(
+    delimited(
         ('{', ws),
-        terminated(separated(0.., parse_kv, (ws, ',', ws)), (ws, '}')),
+        separated(0.., parse_kv, (ws, ',', ws)),
+        (ws, '}'),
     )
     .parse_next(buf)
 }
@@ -126,19 +121,17 @@ pub fn parse_object<S: StrStream>(buf: &mut S) -> PResult<HashMap<String, JsonVa
 ///
 /// Whitespace is stripped before/after valid json values.
 pub fn json_value<S: StrStream>(buf: &mut S) -> PResult<JsonVal> {
-    preceded(
+    delimited(
         ws,
-        terminated(
-            alt((
-                parse_null.value(JsonVal::Null),
-                parse_bool.map(JsonVal::Bool),
-                parse_num.map(JsonVal::Num),
-                parse_str.map(JsonVal::Str),
-                parse_array.map(JsonVal::Array),
-                parse_object.map(JsonVal::Object),
-            )),
-            ws,
-        ),
+        alt((
+            parse_null.value(JsonVal::Null),
+            parse_bool.map(JsonVal::Bool),
+            parse_num.map(JsonVal::Num),
+            parse_str.map(JsonVal::Str),
+            parse_array.map(JsonVal::Array),
+            parse_object.map(JsonVal::Object),
+        )),
+        ws,
     )
     .parse_next(buf)
 }
@@ -159,7 +152,7 @@ pub fn json_value<S: StrStream>(buf: &mut S) -> PResult<JsonVal> {
 /// data that adheres to a schema.
 pub fn specific_key<S: StrStream>(key: &str) -> impl Parser<S, String, ContextError> + '_ {
     move |i: &mut S| {
-        preceded(ws, terminated(parse_str, (ws, ':', ws)))
+        delimited(ws, parse_str, (ws, ':', ws))
             .verify(move |s: &String| s == key)
             .parse_next(i)
     }

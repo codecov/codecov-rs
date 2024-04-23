@@ -3,7 +3,9 @@ mod utils;
 use std::{collections::HashMap, fmt, fmt::Debug, marker::PhantomData};
 
 use winnow::{
-    combinator::{alt, eof, opt, peek, preceded, separated, separated_pair, seq, terminated},
+    combinator::{
+        alt, delimited, eof, opt, peek, preceded, separated, separated_pair, seq, terminated,
+    },
     error::{ContextError, ErrMode},
     stream::Stream,
     PResult, Parser, Stateful,
@@ -132,11 +134,8 @@ pub fn coverage<S: StrStream, R: Report, B: ReportBuilder<R>>(
         // Clojure's Cloverage tool does this.
         "true".value(PyreportCoverage::Partial()),
         // Examples: "0/2", "1/2", "2/2"
-        preceded(
-            '"',
-            terminated(separated_pair(parse_u32, '/', parse_u32), '"'),
-        )
-        .map(move |(covered, total)| PyreportCoverage::BranchesTaken { covered, total }),
+        delimited('"', separated_pair(parse_u32, '/', parse_u32), '"')
+            .map(move |(covered, total)| PyreportCoverage::BranchesTaken { covered, total }),
         // Examples: 0, 40
         parse_u32.map(PyreportCoverage::HitCount),
     ))
@@ -182,12 +181,10 @@ pub fn complexity<S: StrStream, R: Report, B: ReportBuilder<R>>(
     buf: &mut ReportOutputStream<S, R, B>,
 ) -> PResult<Complexity> {
     alt((
-        preceded(
+        delimited(
             ('[', ws),
-            terminated(
-                separated_pair(parse_u32, (ws, ',', ws), parse_u32),
-                (ws, ']'),
-            ),
+            separated_pair(parse_u32, (ws, ',', ws), parse_u32),
+            (ws, ']'),
         )
         .map(move |(covered, total)| Complexity::PathsTaken { covered, total }),
         parse_u32.map(Complexity::Total),
@@ -238,33 +235,31 @@ where
     S: Stream<Slice = &'a str>,
 {
     let block_and_branch = separated_pair(parse_u32, ':', parse_u32);
-    let block_and_branch = preceded('"', terminated(block_and_branch, '"'));
+    let block_and_branch = delimited('"', block_and_branch, '"');
     let block_and_branch =
         block_and_branch.map(move |(block, branch)| MissingBranch::BlockAndBranch(block, branch));
 
     let condition_type = opt(preceded(':', "jump"));
 
     let condition = (parse_u32, condition_type);
-    let condition = preceded('"', terminated(condition, '"'));
+    let condition = delimited('"', condition, '"');
     let condition = condition.map(move |(cond, cond_type)| {
         MissingBranch::Condition(cond, cond_type.map(move |s: &str| s.to_string()))
     });
 
-    let line = preceded('"', terminated(parse_u32, '"')).map(MissingBranch::Line);
+    let line = delimited('"', parse_u32, '"').map(MissingBranch::Line);
 
-    preceded(
+    delimited(
         ('[', ws),
-        terminated(
-            alt((
-                // Match 1 or more in the first two cases. If we matched 0 or more, the first case
-                // would technically always succeed and never try later ones.
-                separated(1.., line, (ws, ',', ws)),
-                separated(1.., block_and_branch, (ws, ',', ws)),
-                // Match 0 or more in the last case to allow for an empty list.
-                separated(0.., condition, (ws, ',', ws)),
-            )),
-            (ws, ']'),
-        ),
+        alt((
+            // Match 1 or more in the first two cases. If we matched 0 or more, the first case
+            // would technically always succeed and never try later ones.
+            separated(1.., line, (ws, ',', ws)),
+            separated(1.., block_and_branch, (ws, ',', ws)),
+            // Match 0 or more in the last case to allow for an empty list.
+            separated(0.., condition, (ws, ',', ws)),
+        )),
+        (ws, ']'),
     )
     .parse_next(buf)
 }
@@ -304,13 +299,9 @@ pub fn partial_spans<S: StrStream, R: Report, B: ReportBuilder<R>>(
             coverage,
         },
     );
-    let span_with_coverage = preceded('[', terminated(span_with_coverage, ']'));
+    let span_with_coverage = delimited('[', span_with_coverage, ']');
 
-    preceded(
-        '[',
-        terminated(separated(0.., span_with_coverage, (ws, ',', ws)), ']'),
-    )
-    .parse_next(buf)
+    delimited('[', separated(0.., span_with_coverage, (ws, ',', ws)), ']').parse_next(buf)
 }
 
 /// Represents the coverage measurements taken for a specific "session". Each
@@ -496,7 +487,7 @@ pub fn coverage_datapoint<S: StrStream, R: Report, B: ReportBuilder<R>>(
         _: (ws, ',', ws),
         _coverage_type: nullable(coverage_type),
         _: (ws, ',', ws),
-        labels: preceded('[', terminated(separated(0.., label, (ws, ',', ws)), ']')),
+        labels: delimited('[', separated(0.., label, (ws, ',', ws)), ']'),
         _: ']',
     }}
     .parse_next(buf)?;
@@ -585,13 +576,13 @@ where
         _: (ws, ',', ws),
         coverage_type: coverage_type,
         _: (ws, ',', ws),
-        sessions: preceded('[', terminated(separated(0.., line_session, (ws, ',', ws)), ']')),
+        sessions: delimited('[', separated(0.., line_session, (ws, ',', ws)), ']'),
 //        _: (ws, ',', ws),
         _messages: opt(preceded((ws, ',', ws), nullable(messages))),
 //        _: (ws, ',', ws),
         _complexity: opt(preceded((ws, ',', ws), nullable(complexity))),
 //        _: (ws, ',', ws),
-        datapoints: opt(preceded((ws, ',', ws), nullable(preceded('[', terminated(separated(0.., coverage_datapoint, (ws, ',', ws)), ']'))))),
+        datapoints: opt(preceded((ws, ',', ws), nullable(delimited('[', separated(0.., coverage_datapoint, (ws, ',', ws)), ']')))),
         _: ']',
     }}
     .parse_next(buf)?;

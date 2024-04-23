@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use winnow::{
-    combinator::{cut_err, preceded, separated, terminated},
+    combinator::{cut_err, delimited, separated},
     error::{ContextError, ErrMode},
     PResult, Parser, Stateful,
 };
@@ -82,7 +82,7 @@ pub type ReportOutputStream<S, R, B> = Stateful<S, ReportBuilderCtx<R, B>>;
 pub fn report_file<S: StrStream, R: Report, B: ReportBuilder<R>>(
     buf: &mut ReportOutputStream<S, R, B>,
 ) -> PResult<(usize, i64)> {
-    let (filename, file_summary) = preceded(ws, terminated(parse_kv, ws)).parse_next(buf)?;
+    let (filename, file_summary) = delimited(ws, parse_kv, ws).parse_next(buf)?;
 
     let JsonVal::Array(vals) = file_summary else {
         return Err(ErrMode::Cut(ContextError::new()));
@@ -169,8 +169,7 @@ pub fn report_file<S: StrStream, R: Report, B: ReportBuilder<R>>(
 pub fn report_session<S: StrStream, R: Report, B: ReportBuilder<R>>(
     buf: &mut ReportOutputStream<S, R, B>,
 ) -> PResult<(usize, i64)> {
-    let (session_index, encoded_session) =
-        preceded(ws, terminated(parse_kv, ws)).parse_next(buf)?;
+    let (session_index, encoded_session) = delimited(ws, parse_kv, ws).parse_next(buf)?;
 
     let (Ok(session_index), JsonVal::Object(vals)) =
         (session_index.parse::<usize>(), encoded_session)
@@ -199,9 +198,10 @@ pub fn report_session<S: StrStream, R: Report, B: ReportBuilder<R>>(
 pub fn report_files_dict<S: StrStream, R: Report, B: ReportBuilder<R>>(
     buf: &mut ReportOutputStream<S, R, B>,
 ) -> PResult<HashMap<usize, i64>> {
-    cut_err(preceded(
+    cut_err(delimited(
         (ws, '{', ws),
-        terminated(separated(0.., report_file, (ws, ',', ws)), (ws, '}', ws)),
+        separated(0.., report_file, (ws, ',', ws)),
+        (ws, '}', ws),
     ))
     .parse_next(buf)
 }
@@ -211,9 +211,10 @@ pub fn report_files_dict<S: StrStream, R: Report, B: ReportBuilder<R>>(
 pub fn report_sessions_dict<S: StrStream, R: Report, B: ReportBuilder<R>>(
     buf: &mut ReportOutputStream<S, R, B>,
 ) -> PResult<HashMap<usize, i64>> {
-    cut_err(preceded(
+    cut_err(delimited(
         (ws, '{', ws),
-        terminated(separated(0.., report_session, (ws, ',', ws)), (ws, '}', ws)),
+        separated(0.., report_session, (ws, ',', ws)),
+        (ws, '}', ws),
     ))
     .parse_next(buf)
 }
@@ -243,17 +244,12 @@ pub fn report_sessions_dict<S: StrStream, R: Report, B: ReportBuilder<R>>(
 pub fn parse_report_json<S: StrStream, R: Report, B: ReportBuilder<R>>(
     buf: &mut ReportOutputStream<S, R, B>,
 ) -> PResult<(HashMap<usize, i64>, HashMap<usize, i64>)> {
-    let parse_files = preceded(
-        specific_key("files"),
-        terminated(report_files_dict, (ws, ',', ws)),
-    );
-    let parse_sessions = preceded(
-        specific_key("sessions"),
-        terminated(report_sessions_dict, ws),
-    );
-    cut_err(preceded(
+    let parse_files = delimited(specific_key("files"), report_files_dict, (ws, ',', ws));
+    let parse_sessions = delimited(specific_key("sessions"), report_sessions_dict, ws);
+    cut_err(delimited(
         (ws, '{', ws),
-        terminated((parse_files, parse_sessions), (ws, '}', ws)),
+        (parse_files, parse_sessions),
+        (ws, '}', ws),
     ))
     .parse_next(buf)
 }
