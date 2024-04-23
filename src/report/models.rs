@@ -56,8 +56,9 @@ use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, 
 use strum_macros::{Display, EnumString};
 use uuid::Uuid;
 
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(PartialEq, Debug, Clone, Copy, Default)]
 pub enum CoverageType {
+    #[default]
     Line = 1,
     Branch,
     Method,
@@ -85,10 +86,11 @@ impl FromSql for CoverageType {
     }
 }
 
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(PartialEq, Debug, Clone, Copy, Default)]
 pub enum BranchFormat {
     /// Indicates that the value in the `branch` field is the line number that a
     /// branch lands on. "26", "28", "30"
+    #[default]
     Line,
 
     /// Indicates that the value in the `branch` field refers to the 0th, 1st,
@@ -124,7 +126,7 @@ impl FromSql for BranchFormat {
     }
 }
 
-#[derive(EnumString, Display, Debug, PartialEq, Clone, Copy)]
+#[derive(EnumString, Display, Debug, PartialEq, Clone, Copy, Default)]
 pub enum ContextType {
     /// A [`Context`] with this type represents a test case, and every
     /// [`CoverageSample`] associated with it is a measurement that applies
@@ -134,6 +136,7 @@ pub enum ContextType {
     /// A [`Context`] with this type represents a distinct upload with coverage
     /// data. For instance, a Windows test runner and a macOS test runner
     /// may send coverage data for the same code in two separate uploads.
+    #[default]
     Upload,
 }
 
@@ -152,7 +155,7 @@ impl FromSql for ContextType {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Default)]
 pub struct SourceFile {
     /// Should be a hash of the path
     pub id: i64,
@@ -179,7 +182,7 @@ pub struct SourceFile {
 /// A line is partially covered if:
 /// - its `coverage_type` is [`CoverageType::Branch`] and its `hit_branches`
 ///   value is less than its `total_branches` value (but greater than 0)
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, Default)]
 pub struct CoverageSample {
     pub id: Uuid,
     pub source_file_id: i64,
@@ -201,7 +204,7 @@ pub struct CoverageSample {
 
 /// If raw coverage data includes information about which specific branches
 /// stemming from some line were or weren't covered, it can be stored here.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Default)]
 pub struct BranchesData {
     pub id: Uuid,
     pub source_file_id: i64,
@@ -223,7 +226,7 @@ pub struct BranchesData {
 /// If raw coverage data includes additional metrics for methods (cyclomatic
 /// complexity, aggregated branch coverage) or details like its name or
 /// signature, they can be stored here.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Default)]
 pub struct MethodData {
     pub id: Uuid,
     pub source_file_id: i64,
@@ -265,7 +268,7 @@ pub struct MethodData {
 /// That information can be stored straightforwardly in this table as-is.
 /// However, you can also infer that lines 3-7 were all hit 3 times and create
 /// [`CoverageSample`] records for them.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Default)]
 pub struct SpanData {
     pub id: Uuid,
     pub source_file_id: i64,
@@ -292,7 +295,7 @@ pub struct SpanData {
 }
 
 /// Ties a [`Context`] to specific measurement data.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Default)]
 pub struct ContextAssoc {
     pub context_id: i64,
     pub sample_id: Option<Uuid>,
@@ -303,7 +306,7 @@ pub struct ContextAssoc {
 
 /// Context that can be associated with measurements to allow querying/filtering
 /// based on test cases, platforms, or other dimensions.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Default)]
 pub struct Context {
     /// Should be a hash of the name
     pub id: i64,
