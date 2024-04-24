@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use winnow::{
     ascii::float,
-    combinator::{alt, delimited, fold_repeat, separated, separated_pair},
+    combinator::{alt, delimited, repeat, separated, separated_pair},
     error::ContextError,
     stream::Stream,
     token::none_of,
@@ -66,7 +66,7 @@ pub fn parse_char<S: StrStream>(buf: &mut S) -> PResult<char> {
 pub fn parse_str<S: StrStream>(buf: &mut S) -> PResult<String> {
     delimited(
         '"',
-        fold_repeat(0.., parse_char, String::new, |mut s, c| {
+        repeat(0.., parse_char).fold(String::new, |mut s, c| {
             s.push(c);
             s
         }),
