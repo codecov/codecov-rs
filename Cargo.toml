@@ -17,6 +17,8 @@ uuid = { version = "1.8.0", features = ["v4"] }
 # which should use a different hash function.
 seahash = "4.1.0"
 
+memmap2 = "0.9.4"
+
 include_dir = "0.7.3"
 lazy_static = "1.4.0"
 strum = "0.26.1"

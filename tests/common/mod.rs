@@ -8,5 +8,5 @@ pub fn sample_data_path() -> PathBuf {
 }
 
 pub fn read_sample_file(path: &Path) -> String {
-    return read_to_string(sample_data_path().join(path)).ok().unwrap();
+    read_to_string(sample_data_path().join(path)).ok().unwrap()
 }
