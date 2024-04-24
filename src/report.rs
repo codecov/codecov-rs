@@ -12,6 +12,11 @@ use uuid::Uuid;
 pub trait Report {
     fn list_files(&self) -> Result<Vec<models::SourceFile>>;
     fn list_contexts(&self) -> Result<Vec<models::Context>>;
+    fn list_coverage_samples(&self) -> Result<Vec<models::CoverageSample>>;
+    fn list_contexts_for_sample(
+        &self,
+        sample: &models::CoverageSample,
+    ) -> Result<Vec<models::Context>>;
 }
 
 #[cfg_attr(test, automock)]

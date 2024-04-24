@@ -34,7 +34,7 @@ struct ChunkCtx {
 pub struct ParseCtx<R: Report, B: ReportBuilder<R>> {
     /// Rather than returning parsed results, we write them to this
     /// `report_builder`.
-    db: ReportBuilderCtx<R, B>,
+    pub db: ReportBuilderCtx<R, B>,
 
     /// Tracks the labels that we've already added to the report. The key is the
     /// identifier for the label inside the chunks file and the value is the

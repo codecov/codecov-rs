@@ -77,6 +77,55 @@ impl Report for SqliteReport {
         }
         Ok(result)
     }
+
+    // TODO implement for real, just using for integration tests
+    fn list_coverage_samples(&self) -> Result<Vec<models::CoverageSample>> {
+        let mut stmt = self
+            .conn
+            // TODO: memoize prepared statements
+            .prepare("SELECT id, source_file_id, line_no, coverage_type, hits, hit_branches, total_branches FROM coverage_sample")?;
+        let rows = stmt.query_map([], |row| {
+            Ok(models::CoverageSample {
+                id: row.get(0)?,
+                source_file_id: row.get(1)?,
+                line_no: row.get(2)?,
+                coverage_type: row.get(3)?,
+                hits: row.get(4)?,
+                hit_branches: row.get(5)?,
+                total_branches: row.get(6)?,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    // TODO implement for real, just using for integration tests
+    fn list_contexts_for_sample(
+        &self,
+        sample: &models::CoverageSample,
+    ) -> Result<Vec<models::Context>> {
+        let mut stmt = self
+            .conn
+            // TODO: memoize prepared statements
+            .prepare("SELECT context.id, context.context_type, context.name FROM context INNER JOIN context_assoc ON context.id = context_assoc.context_id WHERE context_assoc.sample_id = ?1")?;
+        let rows = stmt.query_map([sample.id], |row| {
+            Ok(models::Context {
+                id: row.get(0)?,
+                context_type: row.get(1)?,
+                name: row.get(2)?,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
 }
 
 pub struct SqliteReportBuilder {
