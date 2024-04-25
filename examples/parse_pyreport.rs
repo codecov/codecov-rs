@@ -5,6 +5,9 @@ use codecov_rs::parsers::pyreport_shim::parse_pyreport;
 fn usage_error() -> ! {
     println!("Usage:");
     println!("  cargo run --example parse_pyreport -- [REPORT_JSON_PATH] [CHUNKS_PATH] [OUT_PATH]");
+    println!("");
+    println!("Example:");
+    println!("  cargo run --example parse_pyreport -- tests/common/sample_data/codecov-rs-reports-json-d2a9ba1.txt tests/common/sample_data/codecov-rs-chunks-d2a9ba1.txt d2a9ba1.sqlite");
 
     std::process::exit(1);
 }
