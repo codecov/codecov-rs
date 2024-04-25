@@ -19,7 +19,6 @@ pub fn main() -> Result<(), std::io::Error> {
         usage_error();
     }
 
-
     let report_json_file = File::open(&args[1])?;
     let chunks_file = File::open(&args[2])?;
     let out_path = PathBuf::from(&args[3]);
