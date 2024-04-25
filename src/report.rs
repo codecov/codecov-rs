@@ -17,6 +17,12 @@ pub trait Report {
         &self,
         sample: &models::CoverageSample,
     ) -> Result<Vec<models::Context>>;
+    fn list_samples_for_file(
+        &self,
+        file: &models::SourceFile,
+    ) -> Result<Vec<models::CoverageSample>>;
+
+    fn merge(&mut self, other: &Self) -> Result<()>;
 }
 
 #[cfg_attr(test, automock)]

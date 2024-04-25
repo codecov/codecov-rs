@@ -126,6 +126,66 @@ impl Report for SqliteReport {
         }
         Ok(result)
     }
+
+    // TODO implement for real, just using for integration tests
+    fn list_samples_for_file(
+        &self,
+        file: &models::SourceFile,
+    ) -> Result<Vec<models::CoverageSample>> {
+        let mut stmt = self
+            .conn
+            // TODO: memoize prepared statements
+            .prepare("SELECT sample.id, sample.source_file_id, sample.line_no, sample.coverage_type, sample.hits, sample.hit_branches, sample.total_branches FROM coverage_sample sample INNER JOIN source_file ON sample.source_file_id = source_file.id WHERE source_file_id=?1")?;
+        let rows = stmt.query_map([file.id], |row| {
+            Ok(models::CoverageSample {
+                id: row.get(0)?,
+                source_file_id: row.get(1)?,
+                line_no: row.get(2)?,
+                coverage_type: row.get(3)?,
+                hits: row.get(4)?,
+                hit_branches: row.get(5)?,
+                total_branches: row.get(6)?,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    /// Merge `other` into `self` without modifying `other`.
+    ///
+    /// TODO: Probably put this in a commit
+    fn merge(&mut self, other: &SqliteReport) -> Result<()> {
+        let _ = self
+            .conn
+            .execute("ATTACH DATABASE ?1 AS other", [other.conn.path()])?;
+
+        let merge_stmts = [
+            // The same `source_file` and `context` records may appear in multiple databases. They
+            // use a hash of their "names" as their PK so any instance of them will
+            // come up with the same PK. We can `INSERT OR IGNORE` to effectively union the tables
+            "INSERT OR IGNORE INTO source_file SELECT * FROM other.source_file",
+            "INSERT OR IGNORE INTO context SELECT * FROM other.context",
+            // For everything else, we use UUIDs as IDs and can simply concatenate the tables
+            "INSERT INTO coverage_sample SELECT * FROM other.coverage_sample",
+            "INSERT INTO branches_data SELECT * FROM other.branches_data",
+            "INSERT INTO method_data SELECT * FROM other.method_data",
+            "INSERT INTO span_data SELECT * FROM other.span_data",
+            "INSERT INTO context_assoc SELECT * FROM other.context_assoc",
+        ];
+        for stmt in merge_stmts {
+            // TODO memoize prepared statements
+            let _ = self.conn.prepare(stmt)?.execute([])?;
+        }
+
+        // TODO memoize prepared statements
+        self.conn.execute_batch("DETACH DATABASE other")?;
+
+        Ok(())
+    }
 }
 
 pub struct SqliteReportBuilder {
@@ -427,6 +487,169 @@ mod tests {
             assert_eq!(
                 MIGRATIONS.current_version(&report.conn),
                 Ok(SchemaVersion::Inside(NonZeroUsize::new(1).unwrap()))
+            );
+        }
+
+        #[test]
+        fn test_merge() {
+            let ctx = setup();
+            let db_file_left = ctx.temp_dir.path().join("left.sqlite");
+            let db_file_right = ctx.temp_dir.path().join("right.sqlite");
+
+            let mut left_report_builder = SqliteReportBuilder::new(db_file_left);
+            let file_1 = left_report_builder
+                .insert_file("src/report.rs".to_string())
+                .expect("Failed to insert file");
+            let file_2 = left_report_builder
+                .insert_file("src/report/models.rs".to_string())
+                .expect("Failed to insert file");
+            let context_1 = left_report_builder
+                .insert_context(models::ContextType::Upload, "codecov-rs CI")
+                .expect("Failed to insert context");
+            let line_1 = left_report_builder
+                .insert_coverage_sample(
+                    file_1.id,
+                    1,
+                    models::CoverageType::Line,
+                    Some(1),
+                    None,
+                    None,
+                )
+                .expect("Failed to insert coverage sample");
+            let line_2 = left_report_builder
+                .insert_coverage_sample(
+                    file_2.id,
+                    1,
+                    models::CoverageType::Branch,
+                    None,
+                    Some(1),
+                    Some(2),
+                )
+                .expect("Failed to insert coverage sample");
+            let line_3 = left_report_builder
+                .insert_coverage_sample(
+                    file_2.id,
+                    2,
+                    models::CoverageType::Method,
+                    Some(2),
+                    None,
+                    None,
+                )
+                .expect("Failed to insert coverage sample");
+            for line in [&line_1, &line_2, &line_3] {
+                let _ = left_report_builder.associate_context(
+                    context_1.id,
+                    Some(line),
+                    None,
+                    None,
+                    None,
+                );
+            }
+
+            let mut right_report_builder = SqliteReportBuilder::new(db_file_right);
+            let file_2 = right_report_builder
+                .insert_file("src/report/models.rs".to_string())
+                .expect("Failed to insert file");
+            let file_3 = right_report_builder
+                .insert_file("src/report/schema.rs".to_string())
+                .expect("Failed to insert file");
+            let context_2 = right_report_builder
+                .insert_context(models::ContextType::Upload, "codecov-rs CI 2")
+                .expect("Failed to insert context");
+            let line_4 = right_report_builder
+                .insert_coverage_sample(
+                    file_2.id,
+                    3,
+                    models::CoverageType::Line,
+                    Some(1),
+                    None,
+                    None,
+                )
+                .expect("Failed to insert coverage sample");
+            let line_5 = right_report_builder
+                .insert_coverage_sample(
+                    file_3.id,
+                    1,
+                    models::CoverageType::Branch,
+                    None,
+                    Some(1),
+                    Some(2),
+                )
+                .expect("Failed to insert coverage sample");
+            let _ = right_report_builder.insert_branches_data(
+                file_2.id,
+                line_5.id,
+                0,
+                models::BranchFormat::Condition,
+                "1".to_string(),
+            );
+            let line_6 = right_report_builder
+                .insert_coverage_sample(
+                    file_2.id,
+                    2,
+                    models::CoverageType::Method,
+                    Some(2),
+                    None,
+                    None,
+                )
+                .expect("Failed to insert coverage sample");
+            let _ = right_report_builder.insert_method_data(
+                file_2.id,
+                Some(line_6.id),
+                Some(2),
+                None,
+                None,
+                Some(1),
+                Some(2),
+            );
+            for line in [&line_4, &line_5, &line_6] {
+                let _ = right_report_builder.associate_context(
+                    context_2.id,
+                    Some(line),
+                    None,
+                    None,
+                    None,
+                );
+            }
+
+            let mut left = left_report_builder.build();
+            let right = right_report_builder.build();
+            left.merge(&right).expect("Failed to merge");
+            assert_eq!(
+                left.list_files()
+                    .expect("Failed to list files")
+                    .sort_by_key(|f| f.id),
+                [&file_1, &file_2, &file_3].sort_by_key(|f| f.id),
+            );
+            assert_eq!(
+                left.list_contexts()
+                    .expect("Failed to list contexts")
+                    .sort_by_key(|c| c.id),
+                [&context_1, &context_2].sort_by_key(|c| c.id),
+            );
+            assert_eq!(
+                left.list_coverage_samples()
+                    .expect("Failed to list coverage samples")
+                    .sort_by_key(|s| s.id),
+                [&line_1, &line_2, &line_3, &line_4, &line_5, &line_6].sort_by_key(|s| s.id),
+            );
+            assert_eq!(
+                left.list_samples_for_file(&file_1)
+                    .expect("Failed to list samples")
+                    .sort_by_key(|s| s.id),
+                [&line_1].sort_by_key(|s| s.id),
+            );
+            assert_eq!(
+                left.list_samples_for_file(&file_2)
+                    .expect("Failed to list samples")
+                    .sort_by_key(|s| s.id),
+                [&line_2, &line_3, &line_4].sort_by_key(|s| s.id),
+            );
+            assert_eq!(
+                left.list_samples_for_file(&file_3)
+                    .expect("Failed to list samples")
+                    .sort_by_key(|s| s.id),
+                [&line_5, &line_6].sort_by_key(|s| s.id),
             );
         }
     }
