@@ -24,7 +24,6 @@ lazy_static = "1.4.0"
 strum = "0.26.1"
 strum_macros = "0.26.1"
 
-anyhow = "1.0.82"
 thiserror = "1.0.59"
 
 winnow = "0.5.34"
