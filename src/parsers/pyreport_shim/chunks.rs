@@ -1,6 +1,6 @@
 mod utils;
 
-use std::{collections::HashMap, fmt, fmt::Debug, marker::PhantomData};
+use std::{collections::HashMap, fmt, fmt::Debug};
 
 use winnow::{
     combinator::{
@@ -11,12 +11,16 @@ use winnow::{
     PResult, Parser, Stateful,
 };
 
-use crate::{
-    parsers::{
-        json::{json_value, parse_object, parse_str, JsonMap, JsonVal},
-        nullable, parse_u32, ws, Report, ReportBuilder, ReportBuilderCtx, StrStream,
+use super::super::{
+    common::{
+        winnow::{nullable, parse_u32, ws, StrStream},
+        ReportBuilderCtx,
     },
-    report::models::{ContextType, CoverageType},
+    json::{json_value, parse_object, parse_str, JsonMap, JsonVal},
+};
+use crate::report::{
+    models::{ContextType, CoverageType},
+    Report, ReportBuilder,
 };
 
 #[derive(PartialEq, Debug)]
@@ -69,10 +73,7 @@ impl<R: Report, B: ReportBuilder<R>> ParseCtx<R, B> {
     ) -> ParseCtx<R, B> {
         ParseCtx {
             labels_index: HashMap::new(),
-            db: ReportBuilderCtx {
-                report_builder,
-                _phantom: PhantomData,
-            },
+            db: ReportBuilderCtx::new(report_builder),
             chunk: ChunkCtx {
                 index: 0,
                 current_line: 0,

@@ -6,9 +6,9 @@ use std::{
 
 use codecov_rs::{
     parsers::{
+        common::ReportBuilderCtx,
         pyreport_shim,
         pyreport_shim::{chunks, report_json},
-        ReportBuilderCtx,
     },
     report::{models, Report, ReportBuilder, SqliteReport, SqliteReportBuilder},
 };

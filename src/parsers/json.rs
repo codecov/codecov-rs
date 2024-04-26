@@ -11,7 +11,7 @@ use winnow::{
     PResult, Parser,
 };
 
-use crate::parsers::{ws, StrStream};
+use super::common::winnow::*;
 
 /*
  * Parsers in this section return raw Rust types and may be useful to other

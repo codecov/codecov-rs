@@ -3,9 +3,9 @@ use std::{fs::File, path::PathBuf};
 use memmap2::Mmap;
 use winnow::Parser;
 
+use super::common::ReportBuilderCtx;
 use crate::{
     error::{CodecovError, Result},
-    parsers::ReportBuilderCtx,
     report::{ReportBuilder, SqliteReport, SqliteReportBuilder},
 };
 

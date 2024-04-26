@@ -6,13 +6,14 @@ use winnow::{
     PResult, Parser, Stateful,
 };
 
-use crate::{
-    parsers::{
-        json::{parse_kv, specific_key, JsonVal},
-        ws, Report, ReportBuilder, ReportBuilderCtx, StrStream,
+use super::super::{
+    common::{
+        winnow::{ws, StrStream},
+        ReportBuilderCtx,
     },
-    report::models,
+    json::{parse_kv, specific_key, JsonVal},
 };
+use crate::report::{models, Report, ReportBuilder};
 
 pub type ReportOutputStream<S, R, B> = Stateful<S, ReportBuilderCtx<R, B>>;
 
@@ -273,11 +274,7 @@ mod tests {
 
     fn setup() -> Ctx {
         let report_builder = MockReportBuilder::new();
-        let parse_ctx = ReportBuilderCtx {
-            report_builder,
-            _phantom: std::marker::PhantomData,
-        };
-
+        let parse_ctx = ReportBuilderCtx::new(report_builder);
         Ctx { parse_ctx }
     }
 
