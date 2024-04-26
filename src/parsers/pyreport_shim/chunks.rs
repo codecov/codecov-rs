@@ -13,7 +13,7 @@ use winnow::{
 
 use crate::{
     parsers::{
-        json::{json_value, parse_object, parse_str, JsonVal},
+        json::{json_value, parse_object, parse_str, JsonMap, JsonVal},
         nullable, parse_u32, ws, Report, ReportBuilder, ReportBuilderCtx, StrStream,
     },
     report::models::{ContextType, CoverageType},
@@ -636,7 +636,7 @@ where
 /// TODO: Verify that all keys are known.
 pub fn chunk_header<S: StrStream, R: Report, B: ReportBuilder<R>>(
     buf: &mut ReportOutputStream<S, R, B>,
-) -> PResult<HashMap<String, JsonVal>> {
+) -> PResult<JsonMap<String, JsonVal>> {
     terminated(parse_object, '\n').parse_next(buf)
 }
 
@@ -679,29 +679,26 @@ where
 pub fn chunks_file_header<S: StrStream, R: Report, B: ReportBuilder<R>>(
     buf: &mut ReportOutputStream<S, R, B>,
 ) -> PResult<()> {
-    let mut header = terminated(parse_object, FILE_HEADER_TERMINATOR).parse_next(buf)?;
+    let header = terminated(parse_object, FILE_HEADER_TERMINATOR).parse_next(buf)?;
 
-    match header.remove("labels_index") {
-        Some(JsonVal::Object(labels)) => {
-            for (index, name) in labels.into_iter() {
-                let JsonVal::Str(name) = name else {
-                    return Err(ErrMode::Cut(ContextError::new()));
-                };
-                // TODO handle error
-                let context = buf
-                    .state
-                    .db
-                    .report_builder
-                    .insert_context(ContextType::TestCase, &name)
-                    .unwrap();
-                buf.state.labels_index.insert(index, context.id);
-            }
-        }
-        Some(JsonVal::Null) | None => {}
-        _ => {
+    let labels_iter = header
+        .get("labels_index")
+        .and_then(JsonVal::as_object)
+        .into_iter()
+        .flatten();
+    for (index, name) in labels_iter {
+        let Some(name) = name.as_str() else {
             return Err(ErrMode::Cut(ContextError::new()));
-        }
+        };
+        let context = buf
+            .state
+            .db
+            .report_builder
+            .insert_context(ContextType::TestCase, name)
+            .unwrap();
+        buf.state.labels_index.insert(index.clone(), context.id);
     }
+
     Ok(())
 }
 
@@ -1248,7 +1245,7 @@ mod tests {
         // No idea what `messages` actually is! Guessing it's JSON.
         let test_cases = [
             ("null", Ok(JsonVal::Null)),
-            ("{}", Ok(JsonVal::Object(HashMap::new()))),
+            ("{}", Ok(JsonVal::Object(JsonMap::new()))),
         ];
 
         for test_case in test_cases {
@@ -1773,10 +1770,10 @@ mod tests {
         };
 
         let test_cases = [
-            ("{}\n", Ok(HashMap::new())),
+            ("{}\n", Ok(JsonMap::new())),
             (
                 "{\"present_sessions\": []}\n",
-                Ok(HashMap::from([(
+                Ok(JsonMap::from_iter([(
                     "present_sessions".to_string(),
                     JsonVal::Array(vec![]),
                 )])),

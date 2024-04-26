@@ -84,18 +84,21 @@ pub fn report_file<S: StrStream, R: Report, B: ReportBuilder<R>>(
 ) -> PResult<(usize, i64)> {
     let (filename, file_summary) = delimited(ws, parse_kv, ws).parse_next(buf)?;
 
-    let JsonVal::Array(vals) = file_summary else {
-        return Err(ErrMode::Cut(ContextError::new()));
-    };
-
-    let Some(JsonVal::Num(chunks_index)) = vals.get(0) else {
+    println!("{:?}", file_summary);
+    let Some(chunks_index) = file_summary
+        .get(0)
+        // winnow's f64 parser handles scientific notation and such OOTB so we use it for all
+        // numbers. This is expected to be u64
+        .and_then(JsonVal::as_f64)
+        .map(|f| f as u64)
+    else {
         return Err(ErrMode::Cut(ContextError::new()));
     };
 
     // TODO handle converting between error types
     let file = buf.state.report_builder.insert_file(filename).unwrap();
 
-    Ok((*chunks_index as usize, file.id))
+    Ok((chunks_index as usize, file.id))
 }
 
 /// Parses a key-value pair where the key is a session index and the value is an
@@ -170,15 +173,12 @@ pub fn report_session<S: StrStream, R: Report, B: ReportBuilder<R>>(
     buf: &mut ReportOutputStream<S, R, B>,
 ) -> PResult<(usize, i64)> {
     let (session_index, encoded_session) = delimited(ws, parse_kv, ws).parse_next(buf)?;
-
-    let (Ok(session_index), JsonVal::Object(vals)) =
-        (session_index.parse::<usize>(), encoded_session)
-    else {
+    let Ok(session_index) = session_index.parse::<usize>() else {
         return Err(ErrMode::Cut(ContextError::new()));
     };
 
     // arbitrarily choosing job name since "N" is unpopulated
-    let Some(JsonVal::Str(name)) = vals.get("j") else {
+    let Some(ci_job) = encoded_session.get("j").and_then(JsonVal::as_str) else {
         return Err(ErrMode::Cut(ContextError::new()));
     };
 
@@ -186,7 +186,7 @@ pub fn report_session<S: StrStream, R: Report, B: ReportBuilder<R>>(
     let context = buf
         .state
         .report_builder
-        .insert_context(models::ContextType::Upload, name)
+        .insert_context(models::ContextType::Upload, ci_job)
         .unwrap();
 
     // TODO handle error

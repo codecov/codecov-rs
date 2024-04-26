@@ -1,8 +1,10 @@
-use std::collections::HashMap;
-
+pub use serde_json::{
+    value::{Map as JsonMap, Number as JsonNumber},
+    Value as JsonVal,
+};
 use winnow::{
     ascii::float,
-    combinator::{alt, delimited, repeat, separated, separated_pair},
+    combinator::{alt, delimited, opt, preceded, repeat, separated, separated_pair},
     error::ContextError,
     stream::Stream,
     token::none_of,
@@ -28,8 +30,8 @@ pub fn parse_bool<S: StrStream>(buf: &mut S) -> PResult<bool> {
 
 /// Parses numeric strings, returning the value as an f64.
 /// Handles scientific notation.
-pub fn parse_num<S: StrStream>(buf: &mut S) -> PResult<f64> {
-    float.parse_next(buf)
+pub fn parse_num<S: StrStream>(buf: &mut S) -> PResult<JsonNumber> {
+    float.verify_map(JsonNumber::from_f64).parse_next(buf)
 }
 
 /// Parses a single character (which may be escaped), returning a `char`.
@@ -81,17 +83,6 @@ pub fn parse_str<S: StrStream>(buf: &mut S) -> PResult<String> {
  * and are thus json-specific.
  */
 
-/// Enum with different constructors for each json type.
-#[derive(Debug, PartialEq, Clone)]
-pub enum JsonVal {
-    Null,
-    Bool(bool),
-    Num(f64),
-    Str(String),
-    Array(Vec<JsonVal>),
-    Object(HashMap<String, JsonVal>),
-}
-
 /// Parses a series of json objects between `[]`s and separated by a comma,
 /// returning a `Vec<JsonVal>`.
 pub fn parse_array<S: StrStream>(buf: &mut S) -> PResult<Vec<JsonVal>> {
@@ -107,11 +98,19 @@ pub fn parse_kv<S: StrStream>(buf: &mut S) -> PResult<(String, JsonVal)> {
 }
 
 /// Parses a series of key-value pairs separated by a ':' and surrounded by
-/// `{}`s, returning a `HashMap<String, JsonVal>`.
-pub fn parse_object<S: StrStream>(buf: &mut S) -> PResult<HashMap<String, JsonVal>> {
+/// `{}`s, returning a `Map<String, JsonVal>`.
+pub fn parse_object<S: StrStream>(buf: &mut S) -> PResult<JsonMap<String, JsonVal>> {
+    // parse_kv.map(std::iter::once).map(serde_json::value::Map::from_iter).
+    //    let start_map = parse_kv
+    //        .map(std::iter::once)
+    //        .map(serde_json::value::Map::from_iter);
+    let add_to_map = |mut m: JsonMap<String, JsonVal>, (k, v)| {
+        m.insert(k, v);
+        m
+    };
     delimited(
         ('{', ws),
-        separated(0.., parse_kv, (ws, ',', ws)),
+        repeat(0.., preceded(opt((ws, ',', ws)), parse_kv)).fold(JsonMap::new, add_to_map),
         (ws, '}'),
     )
     .parse_next(buf)
@@ -126,8 +125,8 @@ pub fn json_value<S: StrStream>(buf: &mut S) -> PResult<JsonVal> {
         alt((
             parse_null.value(JsonVal::Null),
             parse_bool.map(JsonVal::Bool),
-            parse_num.map(JsonVal::Num),
-            parse_str.map(JsonVal::Str),
+            parse_num.map(JsonVal::Number),
+            parse_str.map(JsonVal::String),
             parse_array.map(JsonVal::Array),
             parse_object.map(JsonVal::Object),
         )),
@@ -173,17 +172,16 @@ mod tests {
         // characters don't fail
         assert_eq!(parse_null.parse_peek("null "), Ok((" ", "null")));
 
-        // test that whitespace is not stripped
-        assert_eq!(
-            parse_null.parse_peek(" null"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
-
-        // test that unexpected leading tokens fail
-        assert_eq!(
-            parse_null.parse_peek("anull"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
+        let malformed_test_cases = [
+            " null", // test that whitespace is not stripped
+            "anull", // test that unexpected leading tokens fail
+        ];
+        for test_case in &malformed_test_cases {
+            assert_eq!(
+                parse_null.parse_peek(*test_case),
+                Err(ErrMode::Backtrack(ContextError::new())),
+            );
+        }
     }
 
     #[test]
@@ -197,67 +195,84 @@ mod tests {
         assert_eq!(parse_bool.parse_peek("true "), Ok((" ", true)));
         assert_eq!(parse_bool.parse_peek("false "), Ok((" ", false)));
 
-        // test that whitespace is not stripped
-        assert_eq!(
-            parse_bool.parse_peek(" true"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
-        assert_eq!(
-            parse_bool.parse_peek(" false"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
-
-        // test that unexpected leading tokens fail
-        assert_eq!(
-            parse_bool.parse_peek("atrue"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
-        assert_eq!(
-            parse_bool.parse_peek("afalse"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
+        let malformed_test_cases = [" true", " false", "atrue", "afalse"];
+        for test_case in &malformed_test_cases {
+            assert_eq!(
+                parse_bool.parse_peek(*test_case),
+                Err(ErrMode::Backtrack(ContextError::new())),
+            );
+        }
     }
 
     #[test]
     fn test_parse_num() {
+        let json_num = |f| JsonNumber::from_f64(f).unwrap();
         // integers
-        assert_eq!(parse_num.parse_peek("34949"), Ok(("", 34949.0)));
-        assert_eq!(parse_num.parse_peek("-34949"), Ok(("", -34949.0)));
+        assert_eq!(parse_num.parse_peek("34949"), Ok(("", json_num(34949.0))));
+        assert_eq!(parse_num.parse_peek("-34949"), Ok(("", json_num(-34949.0))));
 
         // decimals
-        assert_eq!(parse_num.parse_peek("404.0101"), Ok(("", 404.0101)));
-        assert_eq!(parse_num.parse_peek("-404.0101"), Ok(("", -404.0101)));
-        assert_eq!(parse_num.parse_peek(".05"), Ok(("", 0.05)));
-        assert_eq!(parse_num.parse_peek("-.05"), Ok(("", -0.05)));
+        assert_eq!(
+            parse_num.parse_peek("404.0101"),
+            Ok(("", json_num(404.0101)))
+        );
+        assert_eq!(
+            parse_num.parse_peek("-404.0101"),
+            Ok(("", json_num(-404.0101)))
+        );
+        assert_eq!(parse_num.parse_peek(".05"), Ok(("", json_num(0.05))));
+        assert_eq!(parse_num.parse_peek("-.05"), Ok(("", json_num(-0.05))));
 
         // scientific notation
-        assert_eq!(parse_num.parse_peek("3.3e5"), Ok(("", 330000.0)));
-        assert_eq!(parse_num.parse_peek("3.3e+5"), Ok(("", 330000.0)));
-        assert_eq!(parse_num.parse_peek("3.3e-5"), Ok(("", 0.000033)));
-        assert_eq!(parse_num.parse_peek("-3.3e5"), Ok(("", -330000.0)));
-        assert_eq!(parse_num.parse_peek("-3.3e+5"), Ok(("", -330000.0)));
-        assert_eq!(parse_num.parse_peek("-3.3e-5"), Ok(("", -0.000033)));
-        assert_eq!(parse_num.parse_peek("3.3E5"), Ok(("", 330000.0)));
-        assert_eq!(parse_num.parse_peek("3.3E+5"), Ok(("", 330000.0)));
-        assert_eq!(parse_num.parse_peek("3.3E-5"), Ok(("", 0.000033)));
-        assert_eq!(parse_num.parse_peek("-3.3E5"), Ok(("", -330000.0)));
-        assert_eq!(parse_num.parse_peek("-3.3E+5"), Ok(("", -330000.0)));
-        assert_eq!(parse_num.parse_peek("-3.3E-5"), Ok(("", -0.000033)));
+        assert_eq!(parse_num.parse_peek("3.3e5"), Ok(("", json_num(330000.0))));
+        assert_eq!(parse_num.parse_peek("3.3e+5"), Ok(("", json_num(330000.0))));
+        assert_eq!(parse_num.parse_peek("3.3e-5"), Ok(("", json_num(0.000033))));
+        assert_eq!(
+            parse_num.parse_peek("-3.3e5"),
+            Ok(("", json_num(-330000.0)))
+        );
+        assert_eq!(
+            parse_num.parse_peek("-3.3e+5"),
+            Ok(("", json_num(-330000.0)))
+        );
+        assert_eq!(
+            parse_num.parse_peek("-3.3e-5"),
+            Ok(("", json_num(-0.000033)))
+        );
+        assert_eq!(parse_num.parse_peek("3.3E5"), Ok(("", json_num(330000.0))));
+        assert_eq!(parse_num.parse_peek("3.3E+5"), Ok(("", json_num(330000.0))));
+        assert_eq!(parse_num.parse_peek("3.3E-5"), Ok(("", json_num(0.000033))));
+        assert_eq!(
+            parse_num.parse_peek("-3.3E5"),
+            Ok(("", json_num(-330000.0)))
+        );
+        assert_eq!(
+            parse_num.parse_peek("-3.3E+5"),
+            Ok(("", json_num(-330000.0)))
+        );
+        assert_eq!(
+            parse_num.parse_peek("-3.3E-5"),
+            Ok(("", json_num(-0.000033)))
+        );
 
         // trailing input
-        assert_eq!(parse_num.parse_peek("3.abcde"), Ok(("abcde", 3.0)));
-        assert_eq!(parse_num.parse_peek("3..."), Ok(("..", 3.0)));
-        assert_eq!(parse_num.parse_peek("3.455.303"), Ok((".303", 3.455)));
+        assert_eq!(
+            parse_num.parse_peek("3.abcde"),
+            Ok(("abcde", json_num(3.0)))
+        );
+        assert_eq!(parse_num.parse_peek("3..."), Ok(("..", json_num(3.0))));
+        assert_eq!(
+            parse_num.parse_peek("3.455.303"),
+            Ok((".303", json_num(3.455)))
+        );
 
-        // malformed
-        assert_eq!(
-            parse_num.parse_peek("."),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
-        assert_eq!(
-            parse_num.parse_peek("aajad3.405"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
+        let malformed_test_cases = [".", "aajad3.405"];
+        for test_case in &malformed_test_cases {
+            assert_eq!(
+                parse_num.parse_peek(*test_case),
+                Err(ErrMode::Backtrack(ContextError::new())),
+            );
+        }
     }
 
     #[test]
@@ -309,6 +324,10 @@ mod tests {
             parse_str.parse_peek("\"str with backslash \\\\\""),
             Ok(("", "str with backslash \\".to_string()))
         );
+        assert_eq!(
+            parse_str.parse_peek("\"str with escaped quote \\\" \""),
+            Ok(("", "str with escaped quote \" ".to_string()))
+        );
 
         // trailing input
         assert_eq!(
@@ -317,22 +336,18 @@ mod tests {
         );
 
         // malformed
-        assert_eq!(
-            parse_str.parse_peek("no surrounding quotes"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
-        assert_eq!(
-            parse_str.parse_peek("\"no final quote"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
-        assert_eq!(
-            parse_str.parse_peek("no beginning quote\""),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
-        assert_eq!(
-            parse_str.parse_peek("\"str ending on escaped quote\\\""),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
+        let malformed_test_cases = [
+            "no surrounding quotes",
+            "\"no final quote",
+            "no beginning quote\"",
+            "\"str ending on escaped quote\\\"",
+        ];
+        for test_case in &malformed_test_cases {
+            assert_eq!(
+                parse_str.parse_peek(*test_case),
+                Err(ErrMode::Backtrack(ContextError::new())),
+            );
+        }
     }
 
     #[test]
@@ -343,13 +358,13 @@ mod tests {
             Ok((
                 "",
                 vec![
-                    JsonVal::Num(3.0),
+                    JsonVal::Number(JsonNumber::from_f64(3.0).unwrap()),
                     JsonVal::Null,
                     JsonVal::Bool(true),
                     JsonVal::Bool(false),
-                    JsonVal::Str("str".to_string()),
+                    JsonVal::String("str".to_string()),
                     JsonVal::Array(vec![]),
-                    JsonVal::Object(HashMap::new()),
+                    JsonVal::Object(JsonMap::new()),
                 ]
             ))
         );
@@ -361,13 +376,13 @@ mod tests {
             Ok((
                 "",
                 vec![
-                    JsonVal::Num(3.0),
+                    JsonVal::Number(JsonNumber::from_f64(3.0).unwrap()),
                     JsonVal::Null,
                     JsonVal::Bool(true),
                     JsonVal::Bool(false),
-                    JsonVal::Str("str".to_string()),
+                    JsonVal::String("str".to_string()),
                     JsonVal::Array(vec![]),
-                    JsonVal::Object(HashMap::new()),
+                    JsonVal::Object(JsonMap::new()),
                 ]
             ))
         );
@@ -377,30 +392,20 @@ mod tests {
         assert_eq!(parse_array.parse_peek("[]]"), Ok(("]", vec![])));
 
         // malformed
-        assert_eq!(
-            parse_array.parse_peek("[4"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
-        assert_eq!(
-            parse_array.parse_peek("[4,]"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
-        assert_eq!(
-            parse_array.parse_peek("4[]"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
-        assert_eq!(
-            parse_array.parse_peek("[4, null, unquoted string]"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
-        assert_eq!(
-            parse_array.parse_peek("[4, null, {\"a\": 4]"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
-        assert_eq!(
-            parse_array.parse_peek("[4, null, [\"str\", false, true]"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
+        let malformed_test_cases = [
+            "[4",
+            "[4,]",
+            "4[]",
+            "[4, null, unquoted string]",
+            "[4, null, {\"a\": 4]",
+            "[4, null, [\"str\", false, true]",
+        ];
+        for test_case in &malformed_test_cases {
+            assert_eq!(
+                parse_array.parse_peek(*test_case),
+                Err(ErrMode::Backtrack(ContextError::new())),
+            );
+        }
     }
 
     #[test]
@@ -419,13 +424,19 @@ mod tests {
         );
         assert_eq!(
             parse_kv.parse_peek("\"key\": 4.4"),
-            Ok(("", ("key".to_string(), JsonVal::Num(4.4))))
+            Ok((
+                "",
+                (
+                    "key".to_string(),
+                    JsonVal::Number(JsonNumber::from_f64(4.4).unwrap())
+                )
+            )),
         );
         assert_eq!(
             parse_kv.parse_peek("\"key\": \"str value\""),
             Ok((
                 "",
-                ("key".to_string(), JsonVal::Str("str value".to_string()))
+                ("key".to_string(), JsonVal::String("str value".to_string()))
             ))
         );
         assert_eq!(
@@ -434,7 +445,7 @@ mod tests {
         );
         assert_eq!(
             parse_kv.parse_peek("\"key\": {}"),
-            Ok(("", ("key".to_string(), JsonVal::Object(HashMap::new()))))
+            Ok(("", ("key".to_string(), JsonVal::Object(JsonMap::new()))))
         );
 
         // empty string as a key is fine
@@ -468,52 +479,34 @@ mod tests {
         );
 
         // malformed
-        assert_eq!(
-            parse_kv.parse_peek("key: null"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
-        assert_eq!(
-            parse_kv.parse_peek("\"key: null"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
-        assert_eq!(
-            parse_kv.parse_peek("\"key\":   "),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
-        assert_eq!(
-            parse_kv.parse_peek("key\": null"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
-        assert_eq!(
-            parse_kv.parse_peek("\"key\"; null"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
-        assert_eq!(
-            parse_kv.parse_peek("key: null"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
-        assert_eq!(
-            parse_kv.parse_peek("key: null"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
-        assert_eq!(
-            parse_kv.parse_peek("key: null"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
+        let malformed_test_cases = [
+            "key: null",
+            "\"key: null",
+            "\"key\":    ",
+            "key\": null",
+            "\"key\"; null",
+            "key: null",
+        ];
+        for test_case in &malformed_test_cases {
+            assert_eq!(
+                parse_kv.parse_peek(*test_case),
+                Err(ErrMode::Backtrack(ContextError::new())),
+            );
+        }
     }
 
     #[test]
     fn test_parse_object() {
-        assert_eq!(parse_object.parse_peek("{}"), Ok(("", HashMap::new())));
+        assert_eq!(parse_object.parse_peek("{}"), Ok(("", JsonMap::new())));
         assert_eq!(
             parse_object.parse_peek("{\"key\": null}"),
-            Ok(("", HashMap::from([("key".to_string(), JsonVal::Null)])))
+            Ok(("", JsonMap::from_iter([("key".to_string(), JsonVal::Null)])))
         );
         assert_eq!(
             parse_object.parse_peek("{\"key\": null, \"key2\": null}"),
             Ok((
                 "",
-                HashMap::from([
+                JsonMap::from_iter([
                     ("key".to_string(), JsonVal::Null),
                     ("key2".to_string(), JsonVal::Null)
                 ])
@@ -521,135 +514,60 @@ mod tests {
         );
         assert_eq!(
             parse_object.parse_peek("{   \"key\" \n \t:\t\n null\n}"),
-            Ok(("", HashMap::from([("key".to_string(), JsonVal::Null)])))
+            Ok(("", JsonMap::from_iter([("key".to_string(), JsonVal::Null)])))
         );
 
         // trailing input
         assert_eq!(
             parse_object.parse_peek("{}abcde"),
-            Ok(("abcde", HashMap::new()))
+            Ok(("abcde", JsonMap::new()))
         );
-        assert_eq!(parse_object.parse_peek("{}}"), Ok(("}", HashMap::new())));
-        assert_eq!(parse_object.parse_peek("{}]"), Ok(("]", HashMap::new())));
+        assert_eq!(parse_object.parse_peek("{}}"), Ok(("}", JsonMap::new())));
+        assert_eq!(parse_object.parse_peek("{}]"), Ok(("]", JsonMap::new())));
 
         // malformed
-        assert_eq!(
-            parse_object.parse_peek("{\"key\": null,}"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
-        assert_eq!(
-            parse_object.parse_peek("{\"key\": null"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
-        assert_eq!(
-            parse_object.parse_peek("\"key\": null"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
-        assert_eq!(
-            parse_object.parse_peek("key: null"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
-        assert_eq!(
-            parse_object.parse_peek("{\"key\": }"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
-        assert_eq!(
-            parse_object.parse_peek("{\"key\": , }"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
-        assert_eq!(
-            parse_object.parse_peek("abcde {\"key\": null}"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
+        let malformed_test_cases = [
+            "{\"key\": null,}",
+            "{\"key\": null",
+            "\"key\": null",
+            "key: null",
+            "{\"key\": }",
+            "{\"key\": , }",
+            "abcde {\"key\": null}",
+        ];
+        for test_case in &malformed_test_cases {
+            assert_eq!(
+                parse_object.parse_peek(*test_case),
+                Err(ErrMode::Backtrack(ContextError::new())),
+            );
+        }
     }
 
     #[test]
     fn test_json_value() {
-        assert_eq!(json_value.parse_peek("null"), Ok(("", JsonVal::Null)));
-        assert_eq!(json_value.parse_peek("true"), Ok(("", JsonVal::Bool(true))));
-        assert_eq!(
-            json_value.parse_peek("false"),
-            Ok(("", JsonVal::Bool(false)))
-        );
-        assert_eq!(
-            json_value.parse_peek("3.404"),
-            Ok(("", JsonVal::Num(3.404)))
-        );
-        assert_eq!(
-            json_value.parse_peek("\"test string\""),
-            Ok(("", JsonVal::Str("test string".to_string())))
-        );
-        assert_eq!(
-            json_value.parse_peek("[]"),
-            Ok(("", JsonVal::Array(vec![])))
-        );
-        assert_eq!(
-            json_value.parse_peek("{}"),
-            Ok(("", JsonVal::Object(HashMap::new())))
-        );
+        let test_cases = [
+            "null",
+            "true",
+            "false",
+            "3.404",
+            "\"test string\"",
+            "[]",
+            "{}",
+            "  \n\r\tnull\n   ",
+            "\n\r true\r  ",
+            "  \n false\n  ",
+            "\n 3.404\t ",
+            "\n \"test string\"\n  ",
+            "\r\r\n\t []\t \t\r   ",
+            "  \r {}\r\r\n",
+            "[null, true, false, 3.4, \"str\", [], {}]",
+            "{\"null\": null, \"true\": true, \"false\": false, \"num\": 3.4, \"str\": \"str\", \"array\": [null, 3.3], \"object\": {\"k\": 4.4}}",
+        ];
 
-        assert_eq!(
-            json_value.parse_peek("  \n\r\tnull\n   "),
-            Ok(("", JsonVal::Null))
-        );
-        assert_eq!(
-            json_value.parse_peek("\n\r true\r  "),
-            Ok(("", JsonVal::Bool(true)))
-        );
-        assert_eq!(
-            json_value.parse_peek("  \n false\n  "),
-            Ok(("", JsonVal::Bool(false)))
-        );
-        assert_eq!(
-            json_value.parse_peek("\n 3.404\t "),
-            Ok(("", JsonVal::Num(3.404)))
-        );
-        assert_eq!(
-            json_value.parse_peek("\n \"test string\"\n  "),
-            Ok(("", JsonVal::Str("test string".to_string())))
-        );
-        assert_eq!(
-            json_value.parse_peek("\r\r\n\t []\t \t\r   "),
-            Ok(("", JsonVal::Array(vec![])))
-        );
-        assert_eq!(
-            json_value.parse_peek("  \r {}\r\r\n"),
-            Ok(("", JsonVal::Object(HashMap::new())))
-        );
-
-        // more complicated inputs
-        assert_eq!(
-            json_value.parse_peek("[null, true, false, 3.4, \"str\", [], {}]"),
-            Ok((
-                "",
-                JsonVal::Array(vec![
-                    JsonVal::Null,
-                    JsonVal::Bool(true),
-                    JsonVal::Bool(false),
-                    JsonVal::Num(3.4),
-                    JsonVal::Str("str".to_string()),
-                    JsonVal::Array(vec![]),
-                    JsonVal::Object(HashMap::new())
-                ])
-            ))
-        );
-        assert_eq!(
-            json_value.parse_peek(
-                "{\"null\": null, \"true\": true, \"false\": false, \"num\": 3.4, \"str\": \"str\", \"array\": [null, 3.3], \"object\": {\"k\": 4.4}}"
-            ),
-            Ok((
-                "",
-                JsonVal::Object(HashMap::from([
-                    ("null".to_string(), JsonVal::Null),
-                    ("true".to_string(), JsonVal::Bool(true)),
-                    ("false".to_string(), JsonVal::Bool(false)),
-                    ("num".to_string(), JsonVal::Num(3.4)),
-                    ("str".to_string(), JsonVal::Str("str".to_string())),
-                    ("array".to_string(), JsonVal::Array(vec![JsonVal::Null, JsonVal::Num(3.3)])),
-                    ("object".to_string(), JsonVal::Object(HashMap::from([("k".to_string(), JsonVal::Num(4.4))])))
-                ]))
-            ))
-        );
+        for test_case in &test_cases {
+            let expected = serde_json::from_str(test_case).unwrap();
+            assert_eq!(json_value.parse_peek(*test_case), Ok(("", expected)));
+        }
     }
 
     #[test]
@@ -660,17 +578,16 @@ mod tests {
         );
 
         // malformed
-        assert_eq!(
-            specific_key("files").parse_peek("files\": {\"src"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
-        assert_eq!(
-            specific_key("files").parse_peek("\"files: {\"src"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
-        assert_eq!(
-            specific_key("files").parse_peek("leading\"files\": {\"src"),
-            Err(ErrMode::Backtrack(ContextError::new()))
-        );
+        let malformed_test_cases = [
+            "files\": {\"src",
+            "\"files: {\"src",
+            "leading\"files\": {\"src",
+        ];
+        for test_case in &malformed_test_cases {
+            assert_eq!(
+                specific_key("files").parse_peek(*test_case),
+                Err(ErrMode::Backtrack(ContextError::new()))
+            );
+        }
     }
 }

@@ -316,3 +316,21 @@ pub struct Context {
     /// CI results URI.
     pub name: String,
 }
+
+#[derive(PartialEq, Debug, Default)]
+pub struct UploadDetails {
+    pub context_id: i64,
+
+    pub timestamp: i64,
+    pub raw_upload_url: String,
+    pub flags: Vec<String>,
+    pub provider: String,
+    pub build: String,
+    pub name: String,
+    pub job_name: String,
+    pub ci_run_url: String,
+    pub state: String,
+    pub env: String,
+    pub session_type: String,
+    pub session_extras: String,
+}
