@@ -4,9 +4,10 @@ use mockall::automock;
 pub mod models;
 
 mod sqlite_report;
-use rusqlite::Result;
 pub use sqlite_report::*;
 use uuid::Uuid;
+
+use crate::error::Result;
 
 #[cfg_attr(test, automock)]
 pub trait Report {

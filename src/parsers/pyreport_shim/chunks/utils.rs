@@ -1,7 +1,10 @@
 use super::{
     Complexity, LineSession, MissingBranch, ParseCtx, Partial, PyreportCoverage, ReportLine,
 };
-use crate::report::{models, Report, ReportBuilder};
+use crate::{
+    error::Result,
+    report::{models, Report, ReportBuilder},
+};
 
 fn separate_pyreport_complexity(complexity: &Complexity) -> (Option<i64>, Option<i64>) {
     let (covered, total) = match complexity {
@@ -55,7 +58,7 @@ fn save_line_session<R: Report, B: ReportBuilder<R>>(
     line_session: &LineSession,
     coverage_type: &models::CoverageType,
     ctx: &mut ParseCtx<R, B>,
-) -> Result<models::CoverageSample, ()> {
+) -> Result<models::CoverageSample> {
     let file_id = ctx.report_json_files[&ctx.chunk.index];
 
     // The chunks file crams three of our model fields into the same "coverage"
@@ -63,18 +66,14 @@ fn save_line_session<R: Report, B: ReportBuilder<R>>(
     let (hits, hit_branches, total_branches) = separate_pyreport_coverage(&line_session.coverage);
 
     // Insert the meat of the `LineSession` and get back a `CoverageSample`.
-    let coverage_sample = ctx
-        .db
-        .report_builder
-        .insert_coverage_sample(
-            file_id,
-            ctx.chunk.current_line,
-            *coverage_type,
-            hits,
-            hit_branches,
-            total_branches,
-        )
-        .expect("error inserting coverage sample"); // TODO handle error
+    let coverage_sample = ctx.db.report_builder.insert_coverage_sample(
+        file_id,
+        ctx.chunk.current_line,
+        *coverage_type,
+        hits,
+        hit_branches,
+        total_branches,
+    )?;
 
     // We already created a `Context` for each session when processing the report
     // JSON. Get the `Context` ID for the current session and then associate it with
@@ -86,42 +85,34 @@ fn save_line_session<R: Report, B: ReportBuilder<R>>(
         None, /* branch_id */
         None, /* method_id */
         None, /* span_id */
-    );
+    )?;
 
     // Check for and insert any additional branches data that we have.
     if let Some(Some(missing_branches)) = &line_session.branches {
         for branch in missing_branches {
             let (branch_format, branch_serialized) = format_pyreport_branch(branch);
-            let _ = ctx
-                .db
-                .report_builder
-                .insert_branches_data(
-                    file_id,
-                    coverage_sample.id,
-                    0, // Chunks file only records missing branches
-                    branch_format,
-                    branch_serialized,
-                )
-                .expect("error inserting branches data");
+            let _ = ctx.db.report_builder.insert_branches_data(
+                file_id,
+                coverage_sample.id,
+                0, // Chunks file only records missing branches
+                branch_format,
+                branch_serialized,
+            )?;
         }
     }
 
     // Check for and insert any additional method data we have.
     if let Some(Some(complexity)) = &line_session.complexity {
         let (covered, total) = separate_pyreport_complexity(complexity);
-        let _ = ctx
-            .db
-            .report_builder
-            .insert_method_data(
-                file_id,
-                Some(coverage_sample.id),
-                Some(ctx.chunk.current_line),
-                None, /* hit_branches */
-                None, /* total_branches */
-                covered,
-                total,
-            )
-            .expect("error inserting method data");
+        let _ = ctx.db.report_builder.insert_method_data(
+            file_id,
+            Some(coverage_sample.id),
+            Some(ctx.chunk.current_line),
+            None, /* hit_branches */
+            None, /* total_branches */
+            covered,
+            total,
+        )?;
     }
 
     // Check for and insert any additional span data we have.
@@ -136,18 +127,15 @@ fn save_line_session<R: Report, B: ReportBuilder<R>>(
                 PyreportCoverage::HitCount(hits) => *hits as i64,
                 _ => 0,
             };
-            ctx.db
-                .report_builder
-                .insert_span_data(
-                    file_id,
-                    Some(coverage_sample.id),
-                    hits,
-                    Some(ctx.chunk.current_line),
-                    start_col.map(|x| x as i64),
-                    Some(ctx.chunk.current_line),
-                    end_col.map(|x| x as i64),
-                )
-                .expect("error inserting span data");
+            ctx.db.report_builder.insert_span_data(
+                file_id,
+                Some(coverage_sample.id),
+                hits,
+                Some(ctx.chunk.current_line),
+                start_col.map(|x| x as i64),
+                Some(ctx.chunk.current_line),
+                end_col.map(|x| x as i64),
+            )?;
         }
     }
 
@@ -160,7 +148,7 @@ fn save_line_session<R: Report, B: ReportBuilder<R>>(
 pub fn save_report_line<R: Report, B: ReportBuilder<R>>(
     report_line: &ReportLine,
     ctx: &mut ParseCtx<R, B>,
-) -> Result<(), ()> {
+) -> Result<()> {
     // Most of the data we save is at the `LineSession` level
     for line_session in &report_line.sessions {
         let coverage_sample = save_line_session(line_session, &report_line.coverage_type, ctx)?;
@@ -177,7 +165,7 @@ pub fn save_report_line<R: Report, B: ReportBuilder<R>>(
                         None,
                         None,
                         None,
-                    );
+                    )?;
                 }
             }
         }

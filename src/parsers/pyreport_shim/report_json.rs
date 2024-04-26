@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use winnow::{
     combinator::{cut_err, delimited, separated},
-    error::{ContextError, ErrMode},
+    error::{ContextError, ErrMode, ErrorKind, FromExternalError},
     PResult, Parser, Stateful,
 };
 
@@ -84,7 +84,6 @@ pub fn report_file<S: StrStream, R: Report, B: ReportBuilder<R>>(
 ) -> PResult<(usize, i64)> {
     let (filename, file_summary) = delimited(ws, parse_kv, ws).parse_next(buf)?;
 
-    println!("{:?}", file_summary);
     let Some(chunks_index) = file_summary
         .get(0)
         // winnow's f64 parser handles scientific notation and such OOTB so we use it for all
@@ -95,8 +94,11 @@ pub fn report_file<S: StrStream, R: Report, B: ReportBuilder<R>>(
         return Err(ErrMode::Cut(ContextError::new()));
     };
 
-    // TODO handle converting between error types
-    let file = buf.state.report_builder.insert_file(filename).unwrap();
+    let file = buf
+        .state
+        .report_builder
+        .insert_file(filename)
+        .map_err(|e| ErrMode::from_external_error(buf, ErrorKind::Fail, e))?;
 
     Ok((chunks_index as usize, file.id))
 }
@@ -182,14 +184,12 @@ pub fn report_session<S: StrStream, R: Report, B: ReportBuilder<R>>(
         return Err(ErrMode::Cut(ContextError::new()));
     };
 
-    // TODO handle error
     let context = buf
         .state
         .report_builder
         .insert_context(models::ContextType::Upload, ci_job)
-        .unwrap();
+        .map_err(|e| ErrMode::from_external_error(buf, ErrorKind::Fail, e))?;
 
-    // TODO handle error
     Ok((session_index, context.id))
 }
 

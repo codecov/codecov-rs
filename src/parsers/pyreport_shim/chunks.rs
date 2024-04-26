@@ -6,7 +6,7 @@ use winnow::{
     combinator::{
         alt, delimited, eof, opt, peek, preceded, separated, separated_pair, seq, terminated,
     },
-    error::{ContextError, ErrMode},
+    error::{ContextError, ErrMode, ErrorKind, FromExternalError},
     stream::Stream,
     PResult, Parser, Stateful,
 };
@@ -433,7 +433,7 @@ pub fn label<S: StrStream, R: Report, B: ReportBuilder<R>>(
                 .db
                 .report_builder
                 .insert_context(ContextType::TestCase, &labels_index_key)
-                .unwrap();
+                .map_err(|e| ErrMode::from_external_error(buf, ErrorKind::Fail, e))?;
             buf.state.labels_index.insert(context.name, context.id);
             Ok(labels_index_key)
         }
@@ -600,7 +600,8 @@ where
         line_session.coverage = correct_coverage;
     }
 
-    utils::save_report_line(&report_line, &mut buf.state).expect("error saving report line");
+    utils::save_report_line(&report_line, &mut buf.state)
+        .map_err(|e| ErrMode::from_external_error(buf, ErrorKind::Fail, e))?;
     Ok(report_line)
 }
 
@@ -695,7 +696,7 @@ pub fn chunks_file_header<S: StrStream, R: Report, B: ReportBuilder<R>>(
             .db
             .report_builder
             .insert_context(ContextType::TestCase, name)
-            .unwrap();
+            .map_err(|e| ErrMode::from_external_error(buf, ErrorKind::Fail, e))?;
         buf.state.labels_index.insert(index.clone(), context.id);
     }
 

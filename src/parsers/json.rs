@@ -5,7 +5,7 @@ pub use serde_json::{
 use winnow::{
     ascii::float,
     combinator::{alt, delimited, opt, preceded, repeat, separated, separated_pair},
-    error::ContextError,
+    error::{ContextError, ErrMode, ErrorKind, ParserError},
     stream::Stream,
     token::none_of,
     PResult, Parser,
@@ -48,7 +48,9 @@ pub fn parse_char<S: StrStream>(buf: &mut S) -> PResult<char> {
     let c = none_of('"').parse_next(buf);
     match c {
         Ok('\\') => {
-            let escaped = buf.next_token().unwrap(); // TODO handle error
+            let escaped = buf
+                .next_token()
+                .ok_or_else(|| ErrMode::from_error_kind(buf, ErrorKind::Token))?;
             match escaped {
                 '"' | '\'' | '\\' => Ok(escaped),
                 'n' => Ok('\n'),
@@ -159,8 +161,6 @@ pub fn specific_key<S: StrStream>(key: &str) -> impl Parser<S, String, ContextEr
 
 #[cfg(test)]
 mod tests {
-    use winnow::error::ErrMode;
-
     use super::*;
 
     #[test]

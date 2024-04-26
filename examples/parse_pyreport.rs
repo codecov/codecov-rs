@@ -1,6 +1,6 @@
 use std::{env, fs::File, path::PathBuf};
 
-use codecov_rs::parsers::pyreport_shim::parse_pyreport;
+use codecov_rs::{error::Result, parsers::pyreport_shim::parse_pyreport};
 
 fn usage_error() -> ! {
     println!("Usage:");
@@ -12,7 +12,7 @@ fn usage_error() -> ! {
     std::process::exit(1);
 }
 
-pub fn main() -> Result<(), std::io::Error> {
+pub fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
 
     if args.len() != 4 {

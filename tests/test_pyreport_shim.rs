@@ -45,7 +45,7 @@ fn test_parse_report_json() {
     let input = common::read_sample_file(Path::new("codecov-rs-reports-json-d2a9ba1.txt"));
 
     let test_ctx = setup();
-    let parse_ctx = ReportBuilderCtx::new(SqliteReportBuilder::new(test_ctx.db_file));
+    let parse_ctx = ReportBuilderCtx::new(SqliteReportBuilder::new(test_ctx.db_file).unwrap());
     let mut buf = ReportJsonStream {
         input: &input,
         state: parse_ctx,
@@ -101,7 +101,7 @@ fn test_parse_report_json() {
 fn test_parse_chunks_file() {
     let input = common::read_sample_file(Path::new("codecov-rs-chunks-d2a9ba1.txt"));
     let test_ctx = setup();
-    let mut report_builder = SqliteReportBuilder::new(test_ctx.db_file);
+    let mut report_builder = SqliteReportBuilder::new(test_ctx.db_file).unwrap();
 
     // Pretend `parse_report_json` has already run
     let mut report_json_files = HashMap::new();

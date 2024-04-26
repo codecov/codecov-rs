@@ -1,8 +1,10 @@
 use std::{fs::File, path::PathBuf};
 
 use memmap2::Mmap;
+use winnow::Parser;
 
 use crate::{
+    error::{CodecovError, Result},
     parsers::ReportBuilderCtx,
     report::{ReportBuilder, SqliteReport, SqliteReportBuilder},
 };
@@ -36,8 +38,8 @@ pub fn parse_pyreport(
     report_json_file: &File,
     chunks_file: &File,
     out_path: PathBuf,
-) -> Result<SqliteReport, std::io::Error> {
-    let report_builder = SqliteReportBuilder::new(out_path);
+) -> Result<SqliteReport> {
+    let report_builder = SqliteReportBuilder::new(out_path)?;
 
     // Memory-map the input file so we don't have to read the whole thing into RAM
     let mmap_handle = unsafe { Mmap::map(report_json_file)? };
@@ -46,9 +48,10 @@ pub fn parse_pyreport(
         input: buf,
         state: ReportBuilderCtx::new(report_builder),
     };
-    // TODO handle error
-    let (files, sessions) =
-        report_json::parse_report_json(&mut stream).expect("Failed to parse report JSON");
+    let (files, sessions) = report_json::parse_report_json
+        .parse_next(&mut stream)
+        .map_err(|e| e.into_inner().unwrap_or_default())
+        .map_err(CodecovError::ParserError)?;
 
     // Replace our mmap handle so the first one can be unmapped
     let mmap_handle = unsafe { Mmap::map(chunks_file)? };
@@ -60,8 +63,10 @@ pub fn parse_pyreport(
         input: buf,
         state: chunks_ctx,
     };
-    // TODO handle error
-    chunks::parse_chunks_file(&mut chunks_stream).expect("Failed to parse chunks file");
+    chunks::parse_chunks_file
+        .parse_next(&mut chunks_stream)
+        .map_err(|e| e.into_inner().unwrap_or_default())
+        .map_err(CodecovError::ParserError)?;
 
     // Build and return the `SqliteReport`
     Ok(chunks_stream.state.db.report_builder.build())
