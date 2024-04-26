@@ -56,6 +56,8 @@ use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, 
 use strum_macros::{Display, EnumString};
 use uuid::Uuid;
 
+use crate::parsers::json::JsonVal;
+
 #[derive(PartialEq, Debug, Clone, Copy, Default)]
 pub enum CoverageType {
     #[default]
@@ -320,17 +322,17 @@ pub struct Context {
 #[derive(PartialEq, Debug, Default)]
 pub struct UploadDetails {
     pub context_id: i64,
-
-    pub timestamp: i64,
-    pub raw_upload_url: String,
-    pub flags: Vec<String>,
-    pub provider: String,
-    pub build: String,
-    pub name: String,
-    pub job_name: String,
-    pub ci_run_url: String,
-    pub state: String,
-    pub env: String,
-    pub session_type: String,
-    pub session_extras: String,
+    pub timestamp: Option<i64>,
+    pub raw_upload_url: Option<String>,
+    /// JSON array
+    pub flags: Option<JsonVal>,
+    pub provider: Option<String>,
+    pub build: Option<String>,
+    pub name: Option<String>,
+    pub job_name: Option<String>,
+    pub ci_run_url: Option<String>,
+    pub state: Option<String>,
+    pub env: Option<String>,
+    pub session_type: Option<String>,
+    pub session_extras: Option<JsonVal>,
 }

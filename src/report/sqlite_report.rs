@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use crate::{
     error::Result,
+    parsers::json::JsonVal,
     report::{models, Report, ReportBuilder},
 };
 
@@ -28,6 +29,14 @@ fn open_database(filename: &PathBuf) -> Result<Connection> {
     MIGRATIONS.to_latest(&mut conn)?;
 
     Ok(conn)
+}
+
+/// Can't implement foreign traits (`ToSql`/`FromSql`) on foreign types
+/// (`serde_json::Value`) so this helper function fills in.
+fn json_value_from_sql(s: String, col: usize) -> rusqlite::Result<Option<JsonVal>> {
+    serde_json::from_str(s.as_str()).map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(col, rusqlite::types::Type::Text, Box::new(e))
+    })
 }
 
 impl SqliteReport {
@@ -154,6 +163,32 @@ impl Report for SqliteReport {
             result.push(row?);
         }
         Ok(result)
+    }
+
+    fn get_details_for_upload(&self, upload: &models::Context) -> Result<models::UploadDetails> {
+        assert_eq!(upload.context_type, models::ContextType::Upload);
+        let mut stmt = self.conn.prepare("SELECT context_id, timestamp, raw_upload_url, flags, provider, build, name, job_name, ci_run_url, state, env, session_type, session_extras FROM upload_details WHERE context_id = ?1")?;
+        Ok(stmt.query_row([upload.id], |row| {
+            Ok(models::UploadDetails {
+                context_id: row.get(0)?,
+                timestamp: row.get(1)?,
+                raw_upload_url: row.get(2)?,
+                flags: row
+                    .get::<usize, String>(3)
+                    .and_then(|s| json_value_from_sql(s, 3))?,
+                provider: row.get(4)?,
+                build: row.get(5)?,
+                name: row.get(6)?,
+                job_name: row.get(7)?,
+                ci_run_url: row.get(8)?,
+                state: row.get(9)?,
+                env: row.get(10)?,
+                session_type: row.get(11)?,
+                session_extras: row
+                    .get::<usize, String>(12)
+                    .and_then(|s| json_value_from_sql(s, 12))?,
+            })
+        })?)
     }
 
     /// Merge `other` into `self` without modifying `other`.
@@ -413,6 +448,35 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
         )?)
     }
 
+    fn insert_upload_details(
+        &mut self,
+        context_id: i64,
+        mut upload_details: models::UploadDetails,
+    ) -> Result<models::UploadDetails> {
+        upload_details.context_id = context_id;
+        let mut stmt = self.conn.prepare("INSERT INTO upload_details (context_id, timestamp, raw_upload_url, flags, provider, build, name, job_name, ci_run_url, state, env, session_type, session_extras) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)")?;
+        let _ = stmt.execute((
+            &upload_details.context_id,
+            &upload_details.timestamp,
+            &upload_details.raw_upload_url,
+            &upload_details.flags.as_ref().map(|v| v.to_string()),
+            &upload_details.provider,
+            &upload_details.build,
+            &upload_details.name,
+            &upload_details.job_name,
+            &upload_details.ci_run_url,
+            &upload_details.state,
+            &upload_details.env,
+            &upload_details.session_type,
+            &upload_details
+                .session_extras
+                .as_ref()
+                .map(|v| v.to_string()),
+        ))?;
+
+        Ok(upload_details)
+    }
+
     fn build(self) -> SqliteReport {
         SqliteReport {
             filename: self.filename,
@@ -652,6 +716,8 @@ mod tests {
     }
 
     mod sqlite_report_builder {
+        use serde_json::{json, json_internal};
+
         use super::*;
 
         fn hash_id(key: &str) -> i64 {
@@ -948,6 +1014,52 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(actual_assoc, expected_assoc);
+        }
+
+        #[test]
+        fn test_insert_upload_details() {
+            let ctx = setup();
+            let db_file = ctx.temp_dir.path().join("db.sqlite");
+            let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+
+            let upload = report_builder
+                .insert_context(models::ContextType::Upload, "codecov-rs CI")
+                .unwrap();
+            let inserted_details = models::UploadDetails {
+                context_id: upload.id,
+                timestamp: Some(123),
+                raw_upload_url: Some("https://example.com".to_string()),
+                flags: Some(json!(["abc".to_string(), "def".to_string()])),
+                provider: Some("provider".to_string()),
+                build: Some("build".to_string()),
+                name: Some("name".to_string()),
+                job_name: Some("job name".to_string()),
+                ci_run_url: Some("https://example.com".to_string()),
+                state: Some("state".to_string()),
+                env: Some("env".to_string()),
+                session_type: Some("uploaded".to_string()),
+                session_extras: Some(json!({})),
+            };
+            let inserted_details = report_builder
+                .insert_upload_details(upload.id, inserted_details)
+                .unwrap();
+
+            let other_upload = report_builder
+                .insert_context(models::ContextType::Upload, "codecov-rs CI 2")
+                .unwrap();
+
+            let report = report_builder.build();
+            let fetched_details = report.get_details_for_upload(&upload).unwrap();
+            assert_eq!(fetched_details, inserted_details);
+
+            let other_details_result = report.get_details_for_upload(&other_upload);
+            assert!(other_details_result.is_err());
+            match other_details_result {
+                Err(crate::error::CodecovError::SqliteError(
+                    rusqlite::Error::QueryReturnedNoRows,
+                )) => {}
+                _ => assert!(false),
+            }
         }
     }
 }

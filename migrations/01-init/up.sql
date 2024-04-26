@@ -58,3 +58,19 @@ CREATE TABLE context_assoc (
     span_id BLOB,
     PRIMARY KEY(context_id, sample_id, branch_id, method_id, span_id)
 );
+
+CREATE TABLE upload_details (
+    context_id INTEGER REFERENCES context(id) NOT NULL,
+    timestamp INTEGER,
+    raw_upload_url VARCHAR,
+    flags VARCHAR, -- JSON
+    provider VARCHAR,
+    build VARCHAR,
+    name VARCHAR,
+    job_name VARCHAR,
+    ci_run_url VARCHAR,
+    state VARCHAR,
+    env VARCHAR,
+    session_type VARCHAR,
+    session_extras VARCHAR -- JSON,
+);

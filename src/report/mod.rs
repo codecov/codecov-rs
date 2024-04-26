@@ -22,6 +22,7 @@ pub trait Report {
         &self,
         file: &models::SourceFile,
     ) -> Result<Vec<models::CoverageSample>>;
+    fn get_details_for_upload(&self, upload: &models::Context) -> Result<models::UploadDetails>;
 
     fn merge(&mut self, other: &Self) -> Result<()>;
 }
@@ -84,6 +85,12 @@ pub trait ReportBuilder<R: Report> {
         method_data: Option<&'a models::MethodData>,
         span_data: Option<&'a models::SpanData>,
     ) -> Result<models::ContextAssoc>;
+
+    fn insert_upload_details(
+        &mut self,
+        context_id: i64,
+        upload_details: models::UploadDetails,
+    ) -> Result<models::UploadDetails>;
 
     fn build(self) -> R;
 }

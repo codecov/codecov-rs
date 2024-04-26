@@ -1,3 +1,4 @@
+DROP TABLE upload_details;
 DROP TABLE context_assoc;
 DROP TABLE branches_data;
 DROP TABLE method_data;
