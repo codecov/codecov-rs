@@ -206,7 +206,7 @@ pub struct CoverageSample {
 
 /// If raw coverage data includes information about which specific branches
 /// stemming from some line were or weren't covered, it can be stored here.
-#[derive(PartialEq, Debug, Default)]
+#[derive(PartialEq, Debug, Default, Clone)]
 pub struct BranchesData {
     pub id: Uuid,
     pub source_file_id: i64,
@@ -228,7 +228,7 @@ pub struct BranchesData {
 /// If raw coverage data includes additional metrics for methods (cyclomatic
 /// complexity, aggregated branch coverage) or details like its name or
 /// signature, they can be stored here.
-#[derive(PartialEq, Debug, Default)]
+#[derive(PartialEq, Debug, Default, Clone)]
 pub struct MethodData {
     pub id: Uuid,
     pub source_file_id: i64,
@@ -270,7 +270,7 @@ pub struct MethodData {
 /// That information can be stored straightforwardly in this table as-is.
 /// However, you can also infer that lines 3-7 were all hit 3 times and create
 /// [`CoverageSample`] records for them.
-#[derive(PartialEq, Debug, Default)]
+#[derive(PartialEq, Debug, Default, Clone)]
 pub struct SpanData {
     pub id: Uuid,
     pub source_file_id: i64,
@@ -297,7 +297,7 @@ pub struct SpanData {
 }
 
 /// Ties a [`Context`] to specific measurement data.
-#[derive(PartialEq, Debug, Default)]
+#[derive(PartialEq, Debug, Default, Clone)]
 pub struct ContextAssoc {
     pub context_id: i64,
     pub sample_id: Option<Uuid>,
@@ -308,7 +308,7 @@ pub struct ContextAssoc {
 
 /// Context that can be associated with measurements to allow querying/filtering
 /// based on test cases, platforms, or other dimensions.
-#[derive(PartialEq, Debug, Default)]
+#[derive(PartialEq, Debug, Default, Clone)]
 pub struct Context {
     /// Should be a hash of the name
     pub id: i64,
@@ -319,7 +319,7 @@ pub struct Context {
     pub name: String,
 }
 
-#[derive(PartialEq, Debug, Default)]
+#[derive(PartialEq, Debug, Default, Clone)]
 pub struct UploadDetails {
     pub context_id: i64,
     pub timestamp: Option<i64>,

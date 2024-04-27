@@ -66,53 +66,64 @@ fn save_line_session<R: Report, B: ReportBuilder<R>>(
     let (hits, hit_branches, total_branches) = separate_pyreport_coverage(&line_session.coverage);
 
     // Insert the meat of the `LineSession` and get back a `CoverageSample`.
-    let coverage_sample = ctx.db.report_builder.insert_coverage_sample(
-        file_id,
-        ctx.chunk.current_line,
-        *coverage_type,
-        hits,
-        hit_branches,
-        total_branches,
-    )?;
+    let coverage_sample = ctx
+        .db
+        .report_builder
+        .insert_coverage_sample(models::CoverageSample {
+            source_file_id: file_id,
+            line_no: ctx.chunk.current_line,
+            coverage_type: *coverage_type,
+            hits,
+            hit_branches,
+            total_branches,
+            ..Default::default()
+        })?;
 
     // We already created a `Context` for each session when processing the report
     // JSON. Get the `Context` ID for the current session and then associate it with
     // our new `CoverageSample`.
     let session_id = ctx.report_json_sessions[&line_session.session_id];
-    let _ = ctx.db.report_builder.associate_context(
-        session_id,
-        Some(&coverage_sample),
-        None, /* branch_id */
-        None, /* method_id */
-        None, /* span_id */
-    )?;
+    let _ = ctx
+        .db
+        .report_builder
+        .associate_context(models::ContextAssoc {
+            context_id: session_id,
+            sample_id: Some(coverage_sample.id),
+            ..Default::default()
+        })?;
 
     // Check for and insert any additional branches data that we have.
     if let Some(Some(missing_branches)) = &line_session.branches {
         for branch in missing_branches {
             let (branch_format, branch_serialized) = format_pyreport_branch(branch);
-            let _ = ctx.db.report_builder.insert_branches_data(
-                file_id,
-                coverage_sample.id,
-                0, // Chunks file only records missing branches
-                branch_format,
-                branch_serialized,
-            )?;
+            let _ = ctx
+                .db
+                .report_builder
+                .insert_branches_data(models::BranchesData {
+                    source_file_id: file_id,
+                    sample_id: coverage_sample.id,
+                    hits: 0, // Chunks file only records missing branches
+                    branch_format,
+                    branch: branch_serialized,
+                    ..Default::default()
+                })?;
         }
     }
 
     // Check for and insert any additional method data we have.
     if let Some(Some(complexity)) = &line_session.complexity {
         let (covered, total) = separate_pyreport_complexity(complexity);
-        let _ = ctx.db.report_builder.insert_method_data(
-            file_id,
-            Some(coverage_sample.id),
-            Some(ctx.chunk.current_line),
-            None, /* hit_branches */
-            None, /* total_branches */
-            covered,
-            total,
-        )?;
+        let _ = ctx
+            .db
+            .report_builder
+            .insert_method_data(models::MethodData {
+                source_file_id: file_id,
+                sample_id: Some(coverage_sample.id),
+                line_no: Some(ctx.chunk.current_line),
+                hit_complexity_paths: covered,
+                total_complexity: total,
+                ..Default::default()
+            })?;
     }
 
     // Check for and insert any additional span data we have.
@@ -127,15 +138,16 @@ fn save_line_session<R: Report, B: ReportBuilder<R>>(
                 PyreportCoverage::HitCount(hits) => *hits as i64,
                 _ => 0,
             };
-            ctx.db.report_builder.insert_span_data(
-                file_id,
-                Some(coverage_sample.id),
+            ctx.db.report_builder.insert_span_data(models::SpanData {
+                source_file_id: file_id,
+                sample_id: Some(coverage_sample.id),
                 hits,
-                Some(ctx.chunk.current_line),
-                start_col.map(|x| x as i64),
-                Some(ctx.chunk.current_line),
-                end_col.map(|x| x as i64),
-            )?;
+                start_line: Some(ctx.chunk.current_line),
+                start_col: start_col.map(|x| x as i64),
+                end_line: Some(ctx.chunk.current_line),
+                end_col: end_col.map(|x| x as i64),
+                ..Default::default()
+            })?;
         }
     }
 
@@ -159,13 +171,14 @@ pub fn save_report_line<R: Report, B: ReportBuilder<R>>(
             if let Some(datapoint) = datapoints.get(&(line_session.session_id as u32)) {
                 for label in &datapoint.labels {
                     let context_id = ctx.labels_index[label];
-                    let _ = ctx.db.report_builder.associate_context(
-                        context_id,
-                        Some(&coverage_sample),
-                        None,
-                        None,
-                        None,
-                    )?;
+                    let _ = ctx
+                        .db
+                        .report_builder
+                        .associate_context(models::ContextAssoc {
+                            context_id,
+                            sample_id: Some(coverage_sample.id),
+                            ..Default::default()
+                        })?;
                 }
             }
         }
@@ -277,45 +290,31 @@ mod tests {
             hit_branches,
             total_branches,
         };
-
-        // In all cases, we should create a `CoverageSample`
-        // Clone so we can pass ownership into our mock's closure
-        let inserted_sample_clone = inserted_coverage_sample.clone();
         parse_ctx
             .db
             .report_builder
             .expect_insert_coverage_sample()
-            .with(
-                eq(inserted_coverage_sample.source_file_id),
-                eq(inserted_coverage_sample.line_no),
-                eq(inserted_coverage_sample.coverage_type),
-                eq(inserted_coverage_sample.hits),
-                eq(inserted_coverage_sample.hit_branches),
-                eq(inserted_coverage_sample.total_branches),
-            )
-            .return_once(move |_, _, _, _, _, _| Ok(inserted_sample_clone))
+            .with(eq(models::CoverageSample {
+                id: uuid::Uuid::nil(),
+                ..inserted_coverage_sample
+            }))
+            .return_once(move |mut sample| {
+                sample.id = inserted_coverage_sample.id;
+                Ok(sample)
+            })
             .times(1)
             .in_sequence(sequence);
 
-        // In all cases, we should create this `ContextAssoc`
-        // Clone so we can pass ownership into our mock's closure
-        let inserted_sample_clone = inserted_coverage_sample.clone();
         parse_ctx
             .db
             .report_builder
             .expect_associate_context()
-            .withf(move |context, sample, branch, method, span| {
-                *context == session_context_id
-                    && sample == &Some(&inserted_sample_clone)
-                    && branch.is_none()
-                    && method.is_none()
-                    && span.is_none()
-            })
-            .returning(|_, _, _, _, _| {
-                Ok(models::ContextAssoc {
-                    ..Default::default()
-                })
-            })
+            .with(eq(models::ContextAssoc {
+                context_id: session_context_id,
+                sample_id: Some(inserted_coverage_sample.id),
+                ..Default::default()
+            }))
+            .returning(|assoc| Ok(assoc))
             .times(1)
             .in_sequence(sequence);
 
@@ -326,17 +325,17 @@ mod tests {
                     .db
                     .report_builder
                     .expect_insert_branches_data()
-                    .with(
-                        eq(source_file_id),
-                        eq(inserted_coverage_sample.id),
-                        eq(0),
-                        eq(branch_format),
-                        eq(branch_serialized),
-                    )
-                    .returning(|_, _, _, _, _| {
-                        Ok(models::BranchesData {
-                            ..Default::default()
-                        })
+                    .with(eq(models::BranchesData {
+                        source_file_id,
+                        sample_id: inserted_coverage_sample.id,
+                        hits: 0,
+                        branch_format,
+                        branch: branch_serialized,
+                        ..Default::default()
+                    }))
+                    .return_once(move |mut branch| {
+                        branch.id = uuid::Uuid::new_v4();
+                        Ok(branch)
                     })
                     .times(1)
                     .in_sequence(sequence);
@@ -355,19 +354,17 @@ mod tests {
                 .db
                 .report_builder
                 .expect_insert_method_data()
-                .with(
-                    eq(source_file_id),
-                    eq(Some(inserted_coverage_sample.id)),
-                    eq(Some(inserted_coverage_sample.line_no)),
-                    eq(None), /* hit_branches */
-                    eq(None), /* hit_branches */
-                    eq(covered),
-                    eq(total),
-                )
-                .returning(|_, _, _, _, _, _, _| {
-                    Ok(models::MethodData {
-                        ..Default::default()
-                    })
+                .with(eq(models::MethodData {
+                    source_file_id,
+                    sample_id: Some(inserted_coverage_sample.id),
+                    line_no: Some(inserted_coverage_sample.line_no),
+                    hit_complexity_paths: covered,
+                    total_complexity: total,
+                    ..Default::default()
+                }))
+                .return_once(move |mut method| {
+                    method.id = uuid::Uuid::new_v4();
+                    Ok(method)
                 })
                 .times(1)
                 .in_sequence(sequence);
@@ -394,19 +391,19 @@ mod tests {
                     .db
                     .report_builder
                     .expect_insert_span_data()
-                    .with(
-                        eq(source_file_id),
-                        eq(Some(inserted_coverage_sample.id)),
-                        eq(hits),
-                        eq(Some(inserted_coverage_sample.line_no)),
-                        eq(start_col.map(|x| x as i64)),
-                        eq(Some(inserted_coverage_sample.line_no)),
-                        eq(end_col.map(|x| x as i64)),
-                    )
-                    .returning(|_, _, _, _, _, _, _| {
-                        Ok(models::SpanData {
-                            ..Default::default()
-                        })
+                    .with(eq(models::SpanData {
+                        source_file_id,
+                        sample_id: Some(inserted_coverage_sample.id),
+                        hits,
+                        start_line: Some(inserted_coverage_sample.line_no),
+                        start_col: start_col.map(|x| x as i64),
+                        end_line: Some(inserted_coverage_sample.line_no),
+                        end_col: end_col.map(|x| x as i64),
+                        ..Default::default()
+                    }))
+                    .return_once(move |mut span| {
+                        span.id = uuid::Uuid::new_v4();
+                        Ok(span)
                     })
                     .times(1)
                     .in_sequence(sequence);
@@ -715,41 +712,27 @@ mod tests {
         inserted_sample: models::CoverageSample,
         parse_ctx: &mut ParseCtx<MockReport, MockReportBuilder<MockReport>>,
     ) {
-        let inserted_sample_clone = inserted_sample.clone();
         parse_ctx
             .db
             .report_builder
             .expect_associate_context()
-            .withf(move |context, sample, branch, method, span| {
-                *context == 50
-                    && sample == &Some(&inserted_sample_clone)
-                    && branch.is_none()
-                    && method.is_none()
-                    && span.is_none()
-            })
-            .returning(|_, _, _, _, _| {
-                Ok(models::ContextAssoc {
-                    ..Default::default()
-                })
-            })
+            .with(eq(models::ContextAssoc {
+                context_id: 50,
+                sample_id: Some(inserted_sample.id),
+                ..Default::default()
+            }))
+            .returning(|assoc| Ok(assoc))
             .times(1);
-        let inserted_sample_clone = inserted_sample.clone();
         parse_ctx
             .db
             .report_builder
             .expect_associate_context()
-            .withf(move |context, sample, branch, method, span| {
-                *context == 51
-                    && sample == &Some(&inserted_sample_clone)
-                    && branch.is_none()
-                    && method.is_none()
-                    && span.is_none()
-            })
-            .returning(|_, _, _, _, _| {
-                Ok(models::ContextAssoc {
-                    ..Default::default()
-                })
-            })
+            .with(eq(models::ContextAssoc {
+                context_id: 51,
+                sample_id: Some(inserted_sample.id),
+                ..Default::default()
+            }))
+            .returning(|assoc| Ok(assoc))
             .times(1);
     }
 

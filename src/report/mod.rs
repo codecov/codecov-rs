@@ -5,7 +5,6 @@ pub mod models;
 
 mod sqlite_report;
 pub use sqlite_report::*;
-use uuid::Uuid;
 
 use crate::error::Result;
 
@@ -38,57 +37,25 @@ pub trait ReportBuilder<R: Report> {
 
     fn insert_coverage_sample(
         &mut self,
-        source_file_id: i64,
-        line_no: i64,
-        coverage_type: models::CoverageType,
-        hits: Option<i64>,
-        hit_branches: Option<i64>,
-        total_branches: Option<i64>,
+        sample: models::CoverageSample,
     ) -> Result<models::CoverageSample>;
 
     fn insert_branches_data(
         &mut self,
-        source_file_id: i64,
-        sample_id: Uuid,
-        hits: i64,
-        branch_format: models::BranchFormat,
-        branch: String,
+        branch: models::BranchesData,
     ) -> Result<models::BranchesData>;
 
-    fn insert_method_data(
-        &mut self,
-        source_file_id: i64,
-        sample_id: Option<Uuid>,
-        line_no: Option<i64>,
-        hit_branches: Option<i64>,
-        total_branches: Option<i64>,
-        hit_complexity_paths: Option<i64>,
-        total_complexity: Option<i64>,
-    ) -> Result<models::MethodData>;
+    fn insert_method_data(&mut self, method: models::MethodData) -> Result<models::MethodData>;
 
-    fn insert_span_data(
-        &mut self,
-        source_file_id: i64,
-        sample_id: Option<Uuid>,
-        hits: i64,
-        start_line: Option<i64>,
-        start_col: Option<i64>,
-        end_line: Option<i64>,
-        end_col: Option<i64>,
-    ) -> Result<models::SpanData>;
+    fn insert_span_data(&mut self, span: models::SpanData) -> Result<models::SpanData>;
 
     fn associate_context<'a>(
         &mut self,
-        context_id: i64,
-        sample: Option<&'a models::CoverageSample>,
-        branches_data: Option<&'a models::BranchesData>,
-        method_data: Option<&'a models::MethodData>,
-        span_data: Option<&'a models::SpanData>,
+        assoc: models::ContextAssoc,
     ) -> Result<models::ContextAssoc>;
 
     fn insert_upload_details(
         &mut self,
-        context_id: i64,
         upload_details: models::UploadDetails,
     ) -> Result<models::UploadDetails>;
 

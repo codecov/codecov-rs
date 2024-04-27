@@ -744,39 +744,31 @@ mod tests {
     fn stub_report_builder(report_builder: &mut MockReportBuilder<MockReport>) {
         report_builder
             .expect_insert_coverage_sample()
-            .returning(|_, _, _, _, _, _| {
+            .returning(|_| {
                 Ok(CoverageSample {
                     ..Default::default()
                 })
             });
-        report_builder
-            .expect_insert_branches_data()
-            .returning(|_, _, _, _, _| {
-                Ok(BranchesData {
-                    ..Default::default()
-                })
-            });
-        report_builder
-            .expect_insert_method_data()
-            .returning(|_, _, _, _, _, _, _| {
-                Ok(MethodData {
-                    ..Default::default()
-                })
-            });
-        report_builder
-            .expect_insert_span_data()
-            .returning(|_, _, _, _, _, _, _| {
-                Ok(SpanData {
-                    ..Default::default()
-                })
-            });
-        report_builder
-            .expect_associate_context()
-            .returning(|_, _, _, _, _| {
-                Ok(ContextAssoc {
-                    ..Default::default()
-                })
-            });
+        report_builder.expect_insert_branches_data().returning(|_| {
+            Ok(BranchesData {
+                ..Default::default()
+            })
+        });
+        report_builder.expect_insert_method_data().returning(|_| {
+            Ok(MethodData {
+                ..Default::default()
+            })
+        });
+        report_builder.expect_insert_span_data().returning(|_| {
+            Ok(SpanData {
+                ..Default::default()
+            })
+        });
+        report_builder.expect_associate_context().returning(|_| {
+            Ok(ContextAssoc {
+                ..Default::default()
+            })
+        });
         report_builder.expect_insert_context().returning(|_, name| {
             Ok(Context {
                 name: name.to_string(),

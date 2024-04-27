@@ -278,182 +278,95 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
 
     fn insert_coverage_sample(
         &mut self,
-        source_file_id: i64,
-        line_no: i64,
-        coverage_type: models::CoverageType,
-        hits: Option<i64>,
-        hit_branches: Option<i64>,
-        total_branches: Option<i64>,
+        mut sample: models::CoverageSample,
     ) -> Result<models::CoverageSample> {
-        let mut stmt = self.conn.prepare("INSERT INTO coverage_sample (id, source_file_id, line_no, coverage_type, hits, hit_branches, total_branches) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) RETURNING id, source_file_id, line_no, coverage_type, hits, hit_branches, total_branches")?;
-        Ok(stmt.query_row(
-            (
-                Uuid::new_v4(),
-                source_file_id,
-                line_no,
-                coverage_type,
-                hits,
-                hit_branches,
-                total_branches,
-            ),
-            |row| {
-                Ok(models::CoverageSample {
-                    id: row.get(0)?,
-                    source_file_id: row.get(1)?,
-                    line_no: row.get(2)?,
-                    coverage_type: row.get(3)?,
-                    hits: row.get(4)?,
-                    hit_branches: row.get(5)?,
-                    total_branches: row.get(6)?,
-                })
-            },
-        )?)
+        let mut stmt = self.conn.prepare("INSERT INTO coverage_sample (id, source_file_id, line_no, coverage_type, hits, hit_branches, total_branches) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")?;
+        sample.id = Uuid::new_v4();
+        let _ = stmt.execute((
+            sample.id,
+            sample.source_file_id,
+            sample.line_no,
+            sample.coverage_type,
+            sample.hits,
+            sample.hit_branches,
+            sample.total_branches,
+        ))?;
+
+        Ok(sample)
     }
 
     fn insert_branches_data(
         &mut self,
-        source_file_id: i64,
-        sample_id: Uuid,
-        hits: i64,
-        branch_format: models::BranchFormat,
-        branch: String,
+        mut branch: models::BranchesData,
     ) -> Result<models::BranchesData> {
-        let mut stmt = self.conn.prepare("INSERT INTO branches_data (id, source_file_id, sample_id, hits, branch_format, branch) VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id, source_file_id, sample_id, hits, branch_format, branch")?;
+        let mut stmt = self.conn.prepare("INSERT INTO branches_data (id, source_file_id, sample_id, hits, branch_format, branch) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
 
-        Ok(stmt.query_row(
-            (
-                Uuid::new_v4(),
-                source_file_id,
-                sample_id,
-                hits,
-                branch_format,
-                branch,
-            ),
-            |row| {
-                Ok(models::BranchesData {
-                    id: row.get(0)?,
-                    source_file_id: row.get(1)?,
-                    sample_id: row.get(2)?,
-                    hits: row.get(3)?,
-                    branch_format: row.get(4)?,
-                    branch: row.get(5)?,
-                })
-            },
-        )?)
+        branch.id = Uuid::new_v4();
+        let _ = stmt.execute((
+            branch.id,
+            branch.source_file_id,
+            branch.sample_id,
+            branch.hits,
+            branch.branch_format,
+            &branch.branch,
+        ))?;
+        Ok(branch)
     }
 
-    fn insert_method_data(
-        &mut self,
-        source_file_id: i64,
-        sample_id: Option<Uuid>,
-        line_no: Option<i64>,
-        hit_branches: Option<i64>,
-        total_branches: Option<i64>,
-        hit_complexity_paths: Option<i64>,
-        total_complexity: Option<i64>,
-    ) -> Result<models::MethodData> {
-        let mut stmt = self.conn.prepare("INSERT INTO method_data (id, source_file_id, sample_id, line_no, hit_branches, total_branches, hit_complexity_paths, total_complexity) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) RETURNING id, source_file_id, sample_id, line_no, hit_branches, total_branches, hit_complexity_paths, total_complexity")?;
+    fn insert_method_data(&mut self, mut method: models::MethodData) -> Result<models::MethodData> {
+        let mut stmt = self.conn.prepare("INSERT INTO method_data (id, source_file_id, sample_id, line_no, hit_branches, total_branches, hit_complexity_paths, total_complexity) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")?;
+        method.id = Uuid::new_v4();
 
-        Ok(stmt.query_row(
-            (
-                Uuid::new_v4(),
-                source_file_id,
-                sample_id,
-                line_no,
-                hit_branches,
-                total_branches,
-                hit_complexity_paths,
-                total_complexity,
-            ),
-            |row| {
-                Ok(models::MethodData {
-                    id: row.get(0)?,
-                    source_file_id: row.get(1)?,
-                    sample_id: row.get(2)?,
-                    line_no: row.get(3)?,
-                    hit_branches: row.get(4)?,
-                    total_branches: row.get(5)?,
-                    hit_complexity_paths: row.get(6)?,
-                    total_complexity: row.get(7)?,
-                })
-            },
-        )?)
+        let _ = stmt.execute((
+            method.id,
+            method.source_file_id,
+            method.sample_id,
+            method.line_no,
+            method.hit_branches,
+            method.total_branches,
+            method.hit_complexity_paths,
+            method.total_complexity,
+        ))?;
+        Ok(method)
     }
 
-    fn insert_span_data(
-        &mut self,
-        source_file_id: i64,
-        sample_id: Option<Uuid>,
-        hits: i64,
-        start_line: Option<i64>,
-        start_col: Option<i64>,
-        end_line: Option<i64>,
-        end_col: Option<i64>,
-    ) -> Result<models::SpanData> {
-        let mut stmt = self.conn.prepare("INSERT INTO span_data (id, source_file_id, sample_id, hits, start_line, start_col, end_line, end_col) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) RETURNING id, source_file_id, sample_id, hits, start_line, start_col, end_line, end_col")?;
+    fn insert_span_data(&mut self, mut span: models::SpanData) -> Result<models::SpanData> {
+        let mut stmt = self.conn.prepare("INSERT INTO span_data (id, source_file_id, sample_id, hits, start_line, start_col, end_line, end_col) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")?;
+        span.id = Uuid::new_v4();
 
-        Ok(stmt.query_row(
-            (
-                Uuid::new_v4(),
-                source_file_id,
-                sample_id,
-                hits,
-                start_line,
-                start_col,
-                end_line,
-                end_col,
-            ),
-            |row| {
-                Ok(models::SpanData {
-                    id: row.get(0)?,
-                    source_file_id: row.get(1)?,
-                    sample_id: row.get(2)?,
-                    hits: row.get(3)?,
-                    start_line: row.get(4)?,
-                    start_col: row.get(5)?,
-                    end_line: row.get(6)?,
-                    end_col: row.get(7)?,
-                })
-            },
-        )?)
+        let _ = stmt.execute((
+            span.id,
+            span.source_file_id,
+            span.sample_id,
+            span.hits,
+            span.start_line,
+            span.start_col,
+            span.end_line,
+            span.end_col,
+        ))?;
+        Ok(span)
     }
 
     fn associate_context<'a>(
         &mut self,
-        context_id: i64,
-        sample: Option<&'a models::CoverageSample>,
-        branches_data: Option<&'a models::BranchesData>,
-        method_data: Option<&'a models::MethodData>,
-        span_data: Option<&'a models::SpanData>,
+        assoc: models::ContextAssoc,
     ) -> Result<models::ContextAssoc> {
-        let mut stmt = self.conn.prepare("INSERT INTO context_assoc (context_id, sample_id, branch_id, method_id, span_id) VALUES (?1, ?2, ?3, ?4, ?5) RETURNING context_id, sample_id, branch_id, method_id, span_id")?;
+        let mut stmt = self.conn.prepare("INSERT INTO context_assoc (context_id, sample_id, branch_id, method_id, span_id) VALUES (?1, ?2, ?3, ?4, ?5)")?;
 
-        Ok(stmt.query_row(
-            (
-                context_id,
-                sample.map(|s| s.id),
-                branches_data.map(|b| b.id),
-                method_data.map(|m| m.id),
-                span_data.map(|s| s.id),
-            ),
-            |row| {
-                Ok(models::ContextAssoc {
-                    context_id: row.get(0)?,
-                    sample_id: row.get(1)?,
-                    branch_id: row.get(2)?,
-                    method_id: row.get(3)?,
-                    span_id: row.get(4)?,
-                })
-            },
-        )?)
+        let _ = stmt.execute((
+            assoc.context_id,
+            assoc.sample_id,
+            assoc.branch_id,
+            assoc.method_id,
+            assoc.span_id,
+        ))?;
+        Ok(assoc)
     }
 
     fn insert_upload_details(
         &mut self,
-        context_id: i64,
-        mut upload_details: models::UploadDetails,
+        upload_details: models::UploadDetails,
     ) -> Result<models::UploadDetails> {
-        upload_details.context_id = context_id;
         let mut stmt = self.conn.prepare("INSERT INTO upload_details (context_id, timestamp, raw_upload_url, flags, provider, build, name, job_name, ci_run_url, state, env, session_type, session_extras) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)")?;
         let _ = stmt.execute((
             &upload_details.context_id,
@@ -574,43 +487,38 @@ mod tests {
                 .insert_context(models::ContextType::Upload, "codecov-rs CI")
                 .unwrap();
             let line_1 = left_report_builder
-                .insert_coverage_sample(
-                    file_1.id,
-                    1,
-                    models::CoverageType::Line,
-                    Some(1),
-                    None,
-                    None,
-                )
+                .insert_coverage_sample(models::CoverageSample {
+                    source_file_id: file_1.id,
+                    line_no: 1,
+                    coverage_type: models::CoverageType::Line,
+                    ..Default::default()
+                })
                 .unwrap();
             let line_2 = left_report_builder
-                .insert_coverage_sample(
-                    file_2.id,
-                    1,
-                    models::CoverageType::Branch,
-                    None,
-                    Some(1),
-                    Some(2),
-                )
+                .insert_coverage_sample(models::CoverageSample {
+                    source_file_id: file_2.id,
+                    line_no: 1,
+                    coverage_type: models::CoverageType::Branch,
+                    hit_branches: Some(1),
+                    total_branches: Some(2),
+                    ..Default::default()
+                })
                 .unwrap();
             let line_3 = left_report_builder
-                .insert_coverage_sample(
-                    file_2.id,
-                    2,
-                    models::CoverageType::Method,
-                    Some(2),
-                    None,
-                    None,
-                )
+                .insert_coverage_sample(models::CoverageSample {
+                    source_file_id: file_2.id,
+                    line_no: 2,
+                    coverage_type: models::CoverageType::Method,
+                    hits: Some(2),
+                    ..Default::default()
+                })
                 .unwrap();
             for line in [&line_1, &line_2, &line_3] {
-                let _ = left_report_builder.associate_context(
-                    context_1.id,
-                    Some(line),
-                    None,
-                    None,
-                    None,
-                );
+                let _ = left_report_builder.associate_context(models::ContextAssoc {
+                    context_id: context_1.id,
+                    sample_id: Some(line.id),
+                    ..Default::default()
+                });
             }
 
             let mut right_report_builder = SqliteReportBuilder::new(db_file_right).unwrap();
@@ -624,59 +532,55 @@ mod tests {
                 .insert_context(models::ContextType::Upload, "codecov-rs CI 2")
                 .unwrap();
             let line_4 = right_report_builder
-                .insert_coverage_sample(
-                    file_2.id,
-                    3,
-                    models::CoverageType::Line,
-                    Some(1),
-                    None,
-                    None,
-                )
+                .insert_coverage_sample(models::CoverageSample {
+                    source_file_id: file_2.id,
+                    line_no: 3,
+                    coverage_type: models::CoverageType::Line,
+                    hits: Some(1),
+                    ..Default::default()
+                })
                 .unwrap();
             let line_5 = right_report_builder
-                .insert_coverage_sample(
-                    file_3.id,
-                    1,
-                    models::CoverageType::Branch,
-                    None,
-                    Some(1),
-                    Some(2),
-                )
+                .insert_coverage_sample(models::CoverageSample {
+                    source_file_id: file_3.id,
+                    line_no: 1,
+                    coverage_type: models::CoverageType::Branch,
+                    hit_branches: Some(1),
+                    total_branches: Some(2),
+                    ..Default::default()
+                })
                 .unwrap();
-            let _ = right_report_builder.insert_branches_data(
-                file_2.id,
-                line_5.id,
-                0,
-                models::BranchFormat::Condition,
-                "1".to_string(),
-            );
+            let _ = right_report_builder.insert_branches_data(models::BranchesData {
+                source_file_id: file_2.id,
+                sample_id: line_5.id,
+                hits: 0,
+                branch_format: models::BranchFormat::Condition,
+                branch: "1".to_string(),
+                ..Default::default()
+            });
             let line_6 = right_report_builder
-                .insert_coverage_sample(
-                    file_2.id,
-                    2,
-                    models::CoverageType::Method,
-                    Some(2),
-                    None,
-                    None,
-                )
+                .insert_coverage_sample(models::CoverageSample {
+                    source_file_id: file_2.id,
+                    line_no: 2,
+                    coverage_type: models::CoverageType::Method,
+                    hits: Some(2),
+                    ..Default::default()
+                })
                 .unwrap();
-            let _ = right_report_builder.insert_method_data(
-                file_2.id,
-                Some(line_6.id),
-                Some(2),
-                None,
-                None,
-                Some(1),
-                Some(2),
-            );
+            let _ = right_report_builder.insert_method_data(models::MethodData {
+                source_file_id: file_2.id,
+                sample_id: Some(line_6.id),
+                line_no: Some(2),
+                hit_complexity_paths: Some(1),
+                total_complexity: Some(2),
+                ..Default::default()
+            });
             for line in [&line_4, &line_5, &line_6] {
-                let _ = right_report_builder.associate_context(
-                    context_2.id,
-                    Some(line),
-                    None,
-                    None,
-                    None,
-                );
+                let _ = right_report_builder.associate_context(models::ContextAssoc {
+                    context_id: context_2.id,
+                    sample_id: Some(line.id),
+                    ..Default::default()
+                });
             }
 
             let mut left = left_report_builder.build();
@@ -790,15 +694,9 @@ mod tests {
                 total_branches: Some(4),
             };
             let actual_sample = report_builder
-                .insert_coverage_sample(
-                    expected_sample.source_file_id,
-                    expected_sample.line_no,
-                    expected_sample.coverage_type,
-                    expected_sample.hits,
-                    expected_sample.hit_branches,
-                    expected_sample.total_branches,
-                )
+                .insert_coverage_sample(expected_sample.clone())
                 .unwrap();
+            assert_ne!(expected_sample.id, actual_sample.id);
             expected_sample.id = actual_sample.id.clone();
             assert_eq!(actual_sample, expected_sample);
         }
@@ -814,14 +712,14 @@ mod tests {
                 .unwrap();
 
             let coverage_sample = report_builder
-                .insert_coverage_sample(
-                    file.id,
-                    1, // line_no
-                    models::CoverageType::Branch,
-                    None,    // hits
-                    Some(2), // hit_branches
-                    Some(4), // total_branches
-                )
+                .insert_coverage_sample(models::CoverageSample {
+                    source_file_id: file.id,
+                    line_no: 1,
+                    coverage_type: models::CoverageType::Branch,
+                    hit_branches: Some(2),
+                    total_branches: Some(4),
+                    ..Default::default()
+                })
                 .unwrap();
 
             let mut expected_branch = models::BranchesData {
@@ -833,14 +731,9 @@ mod tests {
                 branch: "0:jump".to_string(),
             };
             let actual_branch = report_builder
-                .insert_branches_data(
-                    expected_branch.source_file_id,
-                    expected_branch.sample_id,
-                    expected_branch.hits,
-                    expected_branch.branch_format,
-                    expected_branch.branch.clone(),
-                )
+                .insert_branches_data(expected_branch.clone())
                 .unwrap();
+            assert_ne!(expected_branch.id, actual_branch.id);
             expected_branch.id = actual_branch.id;
             assert_eq!(actual_branch, expected_branch);
         }
@@ -856,14 +749,14 @@ mod tests {
                 .unwrap();
 
             let coverage_sample = report_builder
-                .insert_coverage_sample(
-                    file.id,
-                    1, // line_no
-                    models::CoverageType::Branch,
-                    None,    // hits
-                    Some(2), // hit_branches
-                    Some(4), // total_branches
-                )
+                .insert_coverage_sample(models::CoverageSample {
+                    source_file_id: file.id,
+                    line_no: 1, // line_no
+                    coverage_type: models::CoverageType::Branch,
+                    hit_branches: Some(2),   // hit_branches
+                    total_branches: Some(4), // total_branches
+                    ..Default::default()
+                })
                 .unwrap();
 
             let mut expected_method = models::MethodData {
@@ -878,15 +771,7 @@ mod tests {
             };
 
             let actual_method = report_builder
-                .insert_method_data(
-                    expected_method.source_file_id,
-                    expected_method.sample_id,
-                    expected_method.line_no,
-                    expected_method.hit_branches,
-                    expected_method.total_branches,
-                    expected_method.hit_complexity_paths,
-                    expected_method.total_complexity,
-                )
+                .insert_method_data(expected_method.clone())
                 .unwrap();
             expected_method.id = actual_method.id;
             assert_eq!(actual_method, expected_method);
@@ -903,14 +788,14 @@ mod tests {
                 .unwrap();
 
             let coverage_sample = report_builder
-                .insert_coverage_sample(
-                    file.id,
-                    1, // line_no
-                    models::CoverageType::Branch,
-                    None,    // hits
-                    Some(2), // hit_branches
-                    Some(4), // total_branches
-                )
+                .insert_coverage_sample(models::CoverageSample {
+                    source_file_id: file.id,
+                    line_no: 1, // line_no
+                    coverage_type: models::CoverageType::Branch,
+                    hit_branches: Some(2),   // hit_branches
+                    total_branches: Some(4), // total_branches
+                    ..Default::default()
+                })
                 .unwrap();
 
             let mut expected_span = models::SpanData {
@@ -924,15 +809,7 @@ mod tests {
                 end_col: Some(60),
             };
             let actual_span = report_builder
-                .insert_span_data(
-                    expected_span.source_file_id,
-                    expected_span.sample_id,
-                    expected_span.hits,
-                    expected_span.start_line,
-                    expected_span.start_col,
-                    expected_span.end_line,
-                    expected_span.end_col,
-                )
+                .insert_span_data(expected_span.clone())
                 .unwrap();
             expected_span.id = actual_span.id;
             assert_eq!(actual_span, expected_span);
@@ -949,48 +826,51 @@ mod tests {
                 .unwrap();
 
             let coverage_sample = report_builder
-                .insert_coverage_sample(
-                    file.id,
-                    1, // line_no
-                    models::CoverageType::Branch,
-                    None,    // hits
-                    Some(2), // hit_branches
-                    Some(4), // total_branches
-                )
+                .insert_coverage_sample(models::CoverageSample {
+                    source_file_id: file.id,
+                    line_no: 1, // line_no
+                    coverage_type: models::CoverageType::Branch,
+                    hit_branches: Some(2),   // hit_branches
+                    total_branches: Some(4), // total_branches
+                    ..Default::default()
+                })
                 .unwrap();
 
             let branch = report_builder
-                .insert_branches_data(
-                    file.id,
-                    coverage_sample.id,
-                    0, // hits
-                    models::BranchFormat::Condition,
-                    "0:jump".to_string(),
-                )
+                .insert_branches_data(models::BranchesData {
+                    source_file_id: file.id,
+                    sample_id: coverage_sample.id,
+                    hits: 0, // hits
+                    branch_format: models::BranchFormat::Condition,
+                    branch: "0:jump".to_string(),
+                    ..Default::default()
+                })
                 .unwrap();
 
             let method = report_builder
-                .insert_method_data(
-                    file.id,
-                    Some(coverage_sample.id),
-                    Some(1), // line_no
-                    Some(1), // hit_branches
-                    Some(2), // total_branches
-                    Some(1), // hit_complexity_paths
-                    Some(2), // total_complexity_paths
-                )
+                .insert_method_data(models::MethodData {
+                    source_file_id: file.id,
+                    sample_id: Some(coverage_sample.id),
+                    line_no: Some(1),
+                    hit_branches: Some(1),
+                    total_branches: Some(2),
+                    hit_complexity_paths: Some(1),
+                    total_complexity: Some(2),
+                    ..Default::default()
+                })
                 .unwrap();
 
             let span = report_builder
-                .insert_span_data(
-                    file.id,
-                    Some(coverage_sample.id),
-                    1,        // hits
-                    Some(1),  // start_line
-                    Some(0),  // start_col
-                    Some(30), // end_line
-                    Some(60), // end_col
-                )
+                .insert_span_data(models::SpanData {
+                    source_file_id: file.id,
+                    sample_id: Some(coverage_sample.id),
+                    hits: 1,             // hits
+                    start_line: Some(1), // start_line
+                    start_col: Some(0),  // start_col
+                    end_line: Some(30),  // end_line
+                    end_col: Some(60),   // end_col
+                    ..Default::default()
+                })
                 .unwrap();
 
             let context = report_builder
@@ -1005,13 +885,13 @@ mod tests {
                 span_id: Some(span.id),
             };
             let actual_assoc = report_builder
-                .associate_context(
-                    context.id,
-                    Some(&coverage_sample),
-                    Some(&branch),
-                    Some(&method),
-                    Some(&span),
-                )
+                .associate_context(models::ContextAssoc {
+                    context_id: context.id,
+                    sample_id: Some(coverage_sample.id),
+                    branch_id: Some(branch.id),
+                    method_id: Some(method.id),
+                    span_id: Some(span.id),
+                })
                 .unwrap();
             assert_eq!(actual_assoc, expected_assoc);
         }
@@ -1041,7 +921,7 @@ mod tests {
                 session_extras: Some(json!({})),
             };
             let inserted_details = report_builder
-                .insert_upload_details(upload.id, inserted_details)
+                .insert_upload_details(inserted_details)
                 .unwrap();
 
             let other_upload = report_builder
