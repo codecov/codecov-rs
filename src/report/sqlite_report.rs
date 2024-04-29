@@ -51,8 +51,7 @@ impl Report for SqliteReport {
     fn list_files(&self) -> Result<Vec<models::SourceFile>> {
         let mut stmt = self
             .conn
-            // TODO: memoize prepared statements
-            .prepare("SELECT id, path FROM source_file")?;
+            .prepare_cached("SELECT id, path FROM source_file")?;
         let rows = stmt.query_map([], |row| {
             Ok(models::SourceFile {
                 id: row.get(0)?,
@@ -71,8 +70,7 @@ impl Report for SqliteReport {
     fn list_contexts(&self) -> Result<Vec<models::Context>> {
         let mut stmt = self
             .conn
-            // TODO: memoize prepared statements
-            .prepare("SELECT id, context_type, name FROM context")?;
+            .prepare_cached("SELECT id, context_type, name FROM context")?;
         let rows = stmt.query_map([], |row| {
             Ok(models::Context {
                 id: row.get(0)?,
@@ -92,8 +90,7 @@ impl Report for SqliteReport {
     fn list_coverage_samples(&self) -> Result<Vec<models::CoverageSample>> {
         let mut stmt = self
             .conn
-            // TODO: memoize prepared statements
-            .prepare("SELECT id, source_file_id, line_no, coverage_type, hits, hit_branches, total_branches FROM coverage_sample")?;
+            .prepare_cached("SELECT id, source_file_id, line_no, coverage_type, hits, hit_branches, total_branches FROM coverage_sample")?;
         let rows = stmt.query_map([], |row| {
             Ok(models::CoverageSample {
                 id: row.get(0)?,
@@ -120,8 +117,7 @@ impl Report for SqliteReport {
     ) -> Result<Vec<models::Context>> {
         let mut stmt = self
             .conn
-            // TODO: memoize prepared statements
-            .prepare("SELECT context.id, context.context_type, context.name FROM context INNER JOIN context_assoc ON context.id = context_assoc.context_id WHERE context_assoc.sample_id = ?1")?;
+            .prepare_cached("SELECT context.id, context.context_type, context.name FROM context INNER JOIN context_assoc ON context.id = context_assoc.context_id WHERE context_assoc.sample_id = ?1")?;
         let rows = stmt.query_map([sample.id], |row| {
             Ok(models::Context {
                 id: row.get(0)?,
@@ -144,8 +140,7 @@ impl Report for SqliteReport {
     ) -> Result<Vec<models::CoverageSample>> {
         let mut stmt = self
             .conn
-            // TODO: memoize prepared statements
-            .prepare("SELECT sample.id, sample.source_file_id, sample.line_no, sample.coverage_type, sample.hits, sample.hit_branches, sample.total_branches FROM coverage_sample sample INNER JOIN source_file ON sample.source_file_id = source_file.id WHERE source_file_id=?1")?;
+            .prepare_cached("SELECT sample.id, sample.source_file_id, sample.line_no, sample.coverage_type, sample.hits, sample.hit_branches, sample.total_branches FROM coverage_sample sample INNER JOIN source_file ON sample.source_file_id = source_file.id WHERE source_file_id=?1")?;
         let rows = stmt.query_map([file.id], |row| {
             Ok(models::CoverageSample {
                 id: row.get(0)?,
@@ -167,7 +162,7 @@ impl Report for SqliteReport {
 
     fn get_details_for_upload(&self, upload: &models::Context) -> Result<models::UploadDetails> {
         assert_eq!(upload.context_type, models::ContextType::Upload);
-        let mut stmt = self.conn.prepare("SELECT context_id, timestamp, raw_upload_url, flags, provider, build, name, job_name, ci_run_url, state, env, session_type, session_extras FROM upload_details WHERE context_id = ?1")?;
+        let mut stmt = self.conn.prepare_cached("SELECT context_id, timestamp, raw_upload_url, flags, provider, build, name, job_name, ci_run_url, state, env, session_type, session_extras FROM upload_details WHERE context_id = ?1")?;
         Ok(stmt.query_row([upload.id], |row| {
             Ok(models::UploadDetails {
                 context_id: row.get(0)?,
@@ -213,11 +208,9 @@ impl Report for SqliteReport {
             "INSERT INTO context_assoc SELECT * FROM other.context_assoc",
         ];
         for stmt in merge_stmts {
-            // TODO memoize prepared statements
-            let _ = self.conn.prepare(stmt)?.execute([])?;
+            let _ = self.conn.prepare_cached(stmt)?.execute([])?;
         }
 
-        // TODO memoize prepared statements
         self.conn.execute_batch("DETACH DATABASE other")?;
 
         Ok(())
@@ -238,10 +231,9 @@ impl SqliteReportBuilder {
 
 impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
     fn insert_file(&mut self, path: String) -> Result<models::SourceFile> {
-        let mut stmt = self
-            .conn
-            // TODO: memoize prepared statements
-            .prepare("INSERT INTO source_file (id, path) VALUES (?1, ?2) RETURNING id, path")?;
+        let mut stmt = self.conn.prepare_cached(
+            "INSERT INTO source_file (id, path) VALUES (?1, ?2) RETURNING id, path",
+        )?;
 
         Ok(
             stmt.query_row((seahash::hash(path.as_bytes()) as i64, path), |row| {
@@ -258,8 +250,7 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
         context_type: models::ContextType,
         name: &str,
     ) -> Result<models::Context> {
-        // TODO: memoize prepared statements
-        let mut stmt = self.conn.prepare("INSERT INTO context (id, context_type, name) VALUES (?1, ?2, ?3) RETURNING id, context_type, name")?;
+        let mut stmt = self.conn.prepare_cached("INSERT INTO context (id, context_type, name) VALUES (?1, ?2, ?3) RETURNING id, context_type, name")?;
         Ok(stmt.query_row(
             (
                 seahash::hash(name.as_bytes()) as i64,
@@ -280,7 +271,7 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
         &mut self,
         mut sample: models::CoverageSample,
     ) -> Result<models::CoverageSample> {
-        let mut stmt = self.conn.prepare("INSERT INTO coverage_sample (id, source_file_id, line_no, coverage_type, hits, hit_branches, total_branches) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")?;
+        let mut stmt = self.conn.prepare_cached("INSERT INTO coverage_sample (id, source_file_id, line_no, coverage_type, hits, hit_branches, total_branches) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")?;
         sample.id = Uuid::new_v4();
         let _ = stmt.execute((
             sample.id,
@@ -299,7 +290,7 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
         &mut self,
         mut branch: models::BranchesData,
     ) -> Result<models::BranchesData> {
-        let mut stmt = self.conn.prepare("INSERT INTO branches_data (id, source_file_id, sample_id, hits, branch_format, branch) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
+        let mut stmt = self.conn.prepare_cached("INSERT INTO branches_data (id, source_file_id, sample_id, hits, branch_format, branch) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
 
         branch.id = Uuid::new_v4();
         let _ = stmt.execute((
@@ -314,7 +305,7 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
     }
 
     fn insert_method_data(&mut self, mut method: models::MethodData) -> Result<models::MethodData> {
-        let mut stmt = self.conn.prepare("INSERT INTO method_data (id, source_file_id, sample_id, line_no, hit_branches, total_branches, hit_complexity_paths, total_complexity) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")?;
+        let mut stmt = self.conn.prepare_cached("INSERT INTO method_data (id, source_file_id, sample_id, line_no, hit_branches, total_branches, hit_complexity_paths, total_complexity) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")?;
         method.id = Uuid::new_v4();
 
         let _ = stmt.execute((
@@ -331,7 +322,7 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
     }
 
     fn insert_span_data(&mut self, mut span: models::SpanData) -> Result<models::SpanData> {
-        let mut stmt = self.conn.prepare("INSERT INTO span_data (id, source_file_id, sample_id, hits, start_line, start_col, end_line, end_col) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")?;
+        let mut stmt = self.conn.prepare_cached("INSERT INTO span_data (id, source_file_id, sample_id, hits, start_line, start_col, end_line, end_col) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")?;
         span.id = Uuid::new_v4();
 
         let _ = stmt.execute((
@@ -351,7 +342,7 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
         &mut self,
         assoc: models::ContextAssoc,
     ) -> Result<models::ContextAssoc> {
-        let mut stmt = self.conn.prepare("INSERT INTO context_assoc (context_id, sample_id, branch_id, method_id, span_id) VALUES (?1, ?2, ?3, ?4, ?5)")?;
+        let mut stmt = self.conn.prepare_cached("INSERT INTO context_assoc (context_id, sample_id, branch_id, method_id, span_id) VALUES (?1, ?2, ?3, ?4, ?5)")?;
 
         let _ = stmt.execute((
             assoc.context_id,
@@ -367,7 +358,7 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
         &mut self,
         upload_details: models::UploadDetails,
     ) -> Result<models::UploadDetails> {
-        let mut stmt = self.conn.prepare("INSERT INTO upload_details (context_id, timestamp, raw_upload_url, flags, provider, build, name, job_name, ci_run_url, state, env, session_type, session_extras) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)")?;
+        let mut stmt = self.conn.prepare_cached("INSERT INTO upload_details (context_id, timestamp, raw_upload_url, flags, provider, build, name, job_name, ci_run_url, state, env, session_type, session_extras) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)")?;
         let _ = stmt.execute((
             &upload_details.context_id,
             &upload_details.timestamp,
