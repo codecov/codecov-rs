@@ -8,7 +8,7 @@ use codecov_rs::{
     parsers::{
         common::ReportBuilderCtx,
         pyreport_shim,
-        pyreport_shim::{chunks, report_json},
+        pyreport_shim::{chunks_to_sql, report_json_to_sql},
     },
     report::{models, Report, ReportBuilder, SqliteReport, SqliteReportBuilder},
 };
@@ -18,8 +18,9 @@ use winnow::Parser;
 mod common;
 
 type ReportJsonStream<'a> =
-    report_json::ReportOutputStream<&'a str, SqliteReport, SqliteReportBuilder>;
-type ChunksStream<'a> = chunks::ReportOutputStream<&'a str, SqliteReport, SqliteReportBuilder>;
+    report_json_to_sql::ReportOutputStream<&'a str, SqliteReport, SqliteReportBuilder>;
+type ChunksStream<'a> =
+    chunks_to_sql::ReportOutputStream<&'a str, SqliteReport, SqliteReportBuilder>;
 
 struct Ctx {
     _temp_dir: TempDir,
@@ -80,7 +81,7 @@ fn test_parse_report_json() {
 
     let expected_json_sessions = HashMap::from([(0, expected_sessions[0].id)]);
 
-    let (actual_files, actual_sessions) = report_json::parse_report_json
+    let (actual_files, actual_sessions) = report_json_to_sql::parse_report_json
         .parse_next(&mut buf)
         .expect("Failed to parse");
     assert_eq!(actual_files, expected_json_files);
@@ -125,7 +126,7 @@ fn test_parse_chunks_file() {
     report_json_sessions.insert(0, session.id);
 
     // Set up to call the chunks parser
-    let chunks_parse_ctx = chunks::ParseCtx::new(
+    let chunks_parse_ctx = chunks_to_sql::ParseCtx::new(
         report_builder,
         report_json_files.clone(),
         report_json_sessions.clone(),
@@ -136,7 +137,7 @@ fn test_parse_chunks_file() {
         state: chunks_parse_ctx,
     };
 
-    chunks::parse_chunks_file
+    chunks_to_sql::parse_chunks_file
         .parse_next(&mut buf)
         .expect("Failed to parse");
 
