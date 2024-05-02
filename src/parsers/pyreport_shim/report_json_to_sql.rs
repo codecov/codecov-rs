@@ -191,6 +191,58 @@ pub fn report_session<S: StrStream, R: Report, B: ReportBuilder<R>>(
         .insert_context(models::ContextType::Upload, ci_job)
         .map_err(|e| ErrMode::from_external_error(buf, ErrorKind::Fail, e))?;
 
+    let upload_details = models::UploadDetails {
+        context_id: context.id,
+        timestamp: encoded_session
+            .get("d")
+            .and_then(JsonVal::as_f64)
+            .map(|f| f as i64),
+        raw_upload_url: encoded_session
+            .get("a")
+            .and_then(JsonVal::as_str)
+            .map(str::to_owned),
+        flags: encoded_session.get("f").cloned(),
+        provider: encoded_session
+            .get("c")
+            .and_then(JsonVal::as_str)
+            .map(str::to_owned),
+        build: encoded_session
+            .get("n")
+            .and_then(JsonVal::as_str)
+            .map(str::to_owned),
+        name: encoded_session
+            .get("N")
+            .and_then(JsonVal::as_str)
+            .map(str::to_owned),
+        job_name: encoded_session
+            .get("j")
+            .and_then(JsonVal::as_str)
+            .map(str::to_owned),
+        ci_run_url: encoded_session
+            .get("u")
+            .and_then(JsonVal::as_str)
+            .map(str::to_owned),
+        state: encoded_session
+            .get("p")
+            .and_then(JsonVal::as_str)
+            .map(str::to_owned),
+        env: encoded_session
+            .get("e")
+            .and_then(JsonVal::as_str)
+            .map(str::to_owned),
+        session_type: encoded_session
+            .get("st")
+            .and_then(JsonVal::as_str)
+            .map(str::to_owned),
+        session_extras: encoded_session.get("se").cloned(),
+    };
+
+    let _ = buf
+        .state
+        .report_builder
+        .insert_upload_details(upload_details)
+        .map_err(|e| ErrMode::from_external_error(buf, ErrorKind::Fail, e))?;
+
     Ok((session_index, context.id))
 }
 
@@ -279,7 +331,10 @@ mod tests {
     }
 
     mod report_json {
+        use serde_json::{json, json_internal};
+
         use super::*;
+        use crate::parsers::json::JsonMap;
 
         fn test_report_file(path: &str, input: &str) -> PResult<(usize, i64)> {
             let ctx = setup();
@@ -366,11 +421,23 @@ mod tests {
                 name: name.to_string(),
             };
 
+            let inserted_details = models::UploadDetails {
+                context_id: inserted_model.id,
+                job_name: Some(name.to_string()),
+                ..Default::default()
+            };
+
             buf.state
                 .report_builder
                 .expect_insert_context()
                 .with(eq(models::ContextType::Upload), eq(name.to_string()))
                 .return_once(move |_, _| Ok(inserted_model));
+
+            buf.state
+                .report_builder
+                .expect_insert_upload_details()
+                .with(eq(inserted_details))
+                .return_once(|details| Ok(details));
 
             report_session.parse_next(&mut buf)
         }
@@ -379,6 +446,75 @@ mod tests {
         fn test_report_session_simple_valid_case() {
             assert_eq!(
                 test_report_session("codecov-rs CI", "\"0\": {\"j\": \"codecov-rs CI\"}",),
+                Ok((0, hash_id("codecov-rs CI")))
+            );
+        }
+
+        #[test]
+        fn test_report_session_fully_populated() {
+            let ctx = setup();
+            let job_name = "codecov-rs CI";
+            let input = "\"0\": {
+                \"t\": [3, 94, 52, 42, 3, \"55.31915\", 2, 2, 0, 0, 3, 5, 0],
+                \"d\": 1704827412,
+                \"a\": \"v4/raw/2024-01-09/<cut>/<cut>/<cut>/340c0c0b-a955-46a0-9de9-3a9b5f2e81e2.txt\",
+                \"f\": [\"flag\"],
+                \"c\": \"github-actions\",
+                \"n\": \"build\",
+                \"N\": \"name\",
+                \"j\": \"codecov-rs CI\",
+                \"u\": \"https://github.com/codecov/codecov-rs/actions/runs/7465738121\",
+                \"p\": \"state\",
+                \"e\": \"env\",
+                \"st\": \"uploaded\",
+                \"se\": {}
+            }";
+            let mut buf = TestStream {
+                input,
+                state: ctx.parse_ctx,
+            };
+
+            let inserted_model = models::Context {
+                id: hash_id(job_name),
+                context_type: models::ContextType::Upload,
+                name: job_name.to_string(),
+            };
+
+            let inserted_details = models::UploadDetails {
+                context_id: inserted_model.id,
+                timestamp: Some(1704827412),
+                raw_upload_url: Some(
+                    "v4/raw/2024-01-09/<cut>/<cut>/<cut>/340c0c0b-a955-46a0-9de9-3a9b5f2e81e2.txt"
+                        .to_string(),
+                ),
+                flags: Some(json!(["flag"])),
+                provider: Some("github-actions".to_string()),
+                build: Some("build".to_string()),
+                name: Some("name".to_string()),
+                job_name: Some(job_name.to_string()),
+                ci_run_url: Some(
+                    "https://github.com/codecov/codecov-rs/actions/runs/7465738121".to_string(),
+                ),
+                state: Some("state".to_string()),
+                env: Some("env".to_string()),
+                session_type: Some("uploaded".to_string()),
+                session_extras: Some(JsonVal::Object(JsonMap::new())),
+            };
+
+            buf.state
+                .report_builder
+                .expect_insert_context()
+                .with(eq(models::ContextType::Upload), eq(job_name.to_string()))
+                .return_once(move |_, _| Ok(inserted_model));
+
+            buf.state
+                .report_builder
+                .expect_insert_upload_details()
+                .with(eq(inserted_details))
+                .return_once(|details| Ok(details));
+
+            assert_eq!(
+                report_session.parse_next(&mut buf),
                 Ok((0, hash_id("codecov-rs CI")))
             );
         }
@@ -535,11 +671,24 @@ mod tests {
                     context_type: models::ContextType::Upload,
                     name: name.to_string(),
                 };
+
+                let inserted_details = models::UploadDetails {
+                    context_id: inserted_context.id,
+                    job_name: Some(name.to_string()),
+                    ..Default::default()
+                };
+
                 buf.state
                     .report_builder
                     .expect_insert_context()
                     .with(eq(models::ContextType::Upload), eq(name.to_string()))
                     .return_once(move |_, _| Ok(inserted_context));
+
+                buf.state
+                    .report_builder
+                    .expect_insert_upload_details()
+                    .with(eq(inserted_details))
+                    .return_once(|details| Ok(details));
             }
 
             report_sessions_dict.parse_next(&mut buf)
@@ -661,11 +810,24 @@ mod tests {
                     context_type: models::ContextType::Upload,
                     name: name.to_string(),
                 };
+
+                let inserted_details = models::UploadDetails {
+                    context_id: inserted_context.id,
+                    job_name: Some(name.to_string()),
+                    ..Default::default()
+                };
+
                 buf.state
                     .report_builder
                     .expect_insert_context()
                     .with(eq(models::ContextType::Upload), eq(name.to_string()))
                     .return_once(move |_, _| Ok(inserted_context));
+
+                buf.state
+                    .report_builder
+                    .expect_insert_upload_details()
+                    .with(eq(inserted_details))
+                    .return_once(|details| Ok(details));
             }
 
             parse_report_json.parse_next(&mut buf)
