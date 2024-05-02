@@ -92,16 +92,30 @@ on
   other_contexts.id = context_assoc.context_id
 group by 1, 2, 3
 order by 1, 2, 3, other_contexts.name
+),
+report_line_totals as (
+select
+  line_sessions.chunk_index,
+  line_sessions.line_no,
+  sum(line_sessions.hits) as hits,
+  sum(line_sessions.hit_branches) as hit_branches,
+  sum(line_sessions.total_branches) as total_branches,
+  sum(line_sessions.hit_complexity_paths) as hit_complexity_paths,
+  sum(line_sessions.total_complexity) as total_complexity
+from
+  line_sessions
+group by
+  1, 2
 )
 select
   line_sessions.chunk_index,
   line_sessions.line_no,
   line_sessions.coverage_type,
-  sum(line_sessions.hits) over win_line_sessions as report_line_hits,
-  sum(line_sessions.hit_branches) over win_line_sessions as report_line_hit_branches,
-  sum(line_sessions.total_branches) over win_line_sessions as report_line_total_branches,
-  sum(line_sessions.hit_complexity_paths) over win_line_sessions as report_line_hit_complexity_paths,
-  sum(line_sessions.total_complexity) over win_line_sessions as report_line_total_complexity,
+  report_line_totals.hits as report_line_hits,
+  report_line_totals.hit_branches as report_line_hit_branches,
+  report_line_totals.total_branches as report_line_total_branches,
+  report_line_totals.hit_complexity_paths as report_line_hit_complexity_paths,
+  report_line_totals.total_complexity as report_line_total_complexity,
   line_sessions.session_index,
   line_sessions.present_sessions,
   line_sessions.hits,
@@ -114,4 +128,8 @@ select
   line_sessions.labels
 from
   line_sessions
-window win_line_sessions as (partition by 1, 2)
+left join
+  report_line_totals
+on
+  line_sessions.chunk_index = report_line_totals.chunk_index
+  and line_sessions.line_no = report_line_totals.line_no
