@@ -58,6 +58,14 @@ use uuid::Uuid;
 
 use crate::parsers::json::JsonVal;
 
+/// Can't implement foreign traits (`ToSql`/`FromSql`) on foreign types
+/// (`serde_json::Value`) so this helper function fills in.
+pub fn json_value_from_sql(s: String, col: usize) -> rusqlite::Result<JsonVal> {
+    serde_json::from_str(s.as_str()).map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(col, rusqlite::types::Type::Text, Box::new(e))
+    })
+}
+
 #[derive(PartialEq, Debug, Clone, Copy, Default)]
 pub enum CoverageType {
     #[default]

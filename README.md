@@ -25,6 +25,7 @@ At time of writing, `codecov-rs` requires the nightly compiler for niceties such
 
 The `examples/` directory contains runnable commands for developers including:
 - `parse_pyreport`: converts a given pyreport into a SQLite report
+- `sql_to_pyreport`: converts a given SQLite report into a pyreport (report JSON + chunks file)
 
 Considering following suit for your own new feature.
 

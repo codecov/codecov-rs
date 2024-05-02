@@ -10,8 +10,13 @@ use crate::{
 };
 
 pub mod report_json_to_sql;
+pub mod sql_to_report_json;
 
 pub mod chunks_to_sql;
+pub mod sql_to_chunks;
+
+const CHUNKS_FILE_HEADER_TERMINATOR: &str = "\n<<<<< end_of_header >>>>>\n";
+const CHUNKS_FILE_END_OF_CHUNK: &str = "\n<<<<< end_of_chunk >>>>>\n";
 
 /// Parses the two parts of our Python report class and reshapes the data into a
 /// `SqliteReport`.
@@ -72,4 +77,16 @@ pub fn parse_pyreport(
 
     // Build and return the `SqliteReport`
     Ok(chunks_stream.state.db.report_builder.build())
+}
+
+pub trait ToPyreport {
+    fn to_pyreport(&self, report_json_file: &mut File, chunks_file: &mut File) -> Result<()>;
+}
+
+impl ToPyreport for SqliteReport {
+    fn to_pyreport(&self, report_json_file: &mut File, chunks_file: &mut File) -> Result<()> {
+        sql_to_report_json::sql_to_report_json(self, report_json_file)?;
+        sql_to_chunks::sql_to_chunks(self, chunks_file)?;
+        Ok(())
+    }
 }

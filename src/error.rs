@@ -16,4 +16,8 @@ pub enum CodecovError {
 
     #[error("io error: '{0}'")]
     IOError(#[from] std::io::Error),
+
+    #[cfg(feature = "pyreport_shim")]
+    #[error("failed to convert sqlite to pyreport")]
+    PyreportConversionError(String),
 }

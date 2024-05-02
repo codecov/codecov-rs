@@ -8,8 +8,7 @@ use uuid::Uuid;
 
 use crate::{
     error::Result,
-    parsers::json::JsonVal,
-    report::{models, Report, ReportBuilder},
+    report::{models, models::json_value_from_sql, Report, ReportBuilder},
 };
 
 static MIGRATIONS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/migrations");
@@ -29,14 +28,6 @@ fn open_database(filename: &PathBuf) -> Result<Connection> {
     MIGRATIONS.to_latest(&mut conn)?;
 
     Ok(conn)
-}
-
-/// Can't implement foreign traits (`ToSql`/`FromSql`) on foreign types
-/// (`serde_json::Value`) so this helper function fills in.
-fn json_value_from_sql(s: String, col: usize) -> rusqlite::Result<Option<JsonVal>> {
-    serde_json::from_str(s.as_str()).map_err(|e| {
-        rusqlite::Error::FromSqlConversionFailure(col, rusqlite::types::Type::Text, Box::new(e))
-    })
 }
 
 impl SqliteReport {
@@ -168,9 +159,10 @@ impl Report for SqliteReport {
                 context_id: row.get(0)?,
                 timestamp: row.get(1)?,
                 raw_upload_url: row.get(2)?,
-                flags: row
-                    .get::<usize, String>(3)
-                    .and_then(|s| json_value_from_sql(s, 3))?,
+                flags: Some(
+                    row.get::<usize, String>(3)
+                        .and_then(|s| json_value_from_sql(s, 3))?,
+                ),
                 provider: row.get(4)?,
                 build: row.get(5)?,
                 name: row.get(6)?,
@@ -179,9 +171,10 @@ impl Report for SqliteReport {
                 state: row.get(9)?,
                 env: row.get(10)?,
                 session_type: row.get(11)?,
-                session_extras: row
-                    .get::<usize, String>(12)
-                    .and_then(|s| json_value_from_sql(s, 12))?,
+                session_extras: Some(
+                    row.get::<usize, String>(12)
+                        .and_then(|s| json_value_from_sql(s, 12))?,
+                ),
             })
         })?)
     }

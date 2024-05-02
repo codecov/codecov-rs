@@ -11,12 +11,15 @@ use winnow::{
     PResult, Parser, Stateful,
 };
 
-use super::super::{
-    common::{
-        winnow::{nullable, parse_u32, ws, StrStream},
-        ReportBuilderCtx,
+use super::{
+    super::{
+        common::{
+            winnow::{nullable, parse_u32, ws, StrStream},
+            ReportBuilderCtx,
+        },
+        json::{json_value, parse_object, parse_str, JsonMap, JsonVal},
     },
-    json::{json_value, parse_object, parse_str, JsonMap, JsonVal},
+    CHUNKS_FILE_END_OF_CHUNK, CHUNKS_FILE_HEADER_TERMINATOR,
 };
 use crate::report::{
     models::{ContextType, CoverageType},
@@ -93,9 +96,6 @@ impl<R: Report, B: ReportBuilder<R>> Debug for ParseCtx<R, B> {
             .finish()
     }
 }
-
-const FILE_HEADER_TERMINATOR: &str = "\n<<<<< end_of_header >>>>>\n";
-const END_OF_CHUNK: &str = "\n<<<<< end_of_chunk >>>>>\n";
 
 /// Enum representing the possible values of the "coverage" field in a
 /// ReportLine or LineSession object.
@@ -620,13 +620,14 @@ where
 {
     buf.state.chunk.current_line += 1;
 
-    // A line is empty if the next character is `\n` or EOF. The `END_OF_CHUNK`
-    // marker includes a leading `\n`, so if the next character is `\n` we have
-    // to make sure it isn't part of `END_OF_CHUNK`.
+    // A line is empty if the next character is `\n` or EOF. The
+    // `CHUNKS_FILE_END_OF_CHUNK` marker includes a leading `\n`, so if the next
+    // character is `\n` we have to make sure it isn't part of
+    // `CHUNKS_FILE_END_OF_CHUNK`.
 
     // A line is empty if the next character is `\n` or EOF. We don't consume that
     // next character from the stream though - we leave it there as either the
-    // delimeter between lines or part of `END_OF_CHUNK`.
+    // delimeter between lines or part of `CHUNKS_FILE_END_OF_CHUNK`.
     let empty_line = peek(alt((eof, "\n"))).value(());
     let populated_line = report_line.value(());
     alt((populated_line, empty_line)).parse_next(buf)
@@ -681,7 +682,7 @@ where
 pub fn chunks_file_header<S: StrStream, R: Report, B: ReportBuilder<R>>(
     buf: &mut ReportOutputStream<S, R, B>,
 ) -> PResult<()> {
-    let header = terminated(parse_object, FILE_HEADER_TERMINATOR).parse_next(buf)?;
+    let header = terminated(parse_object, CHUNKS_FILE_HEADER_TERMINATOR).parse_next(buf)?;
 
     let labels_iter = header
         .get("labels_index")
@@ -705,15 +706,18 @@ pub fn chunks_file_header<S: StrStream, R: Report, B: ReportBuilder<R>>(
 }
 
 /// Parses a chunks file. A chunks file contains an optional header and a series
-/// of 1 or more "chunks" separated by an `END_OF_CHUNK` terminator.
+/// of 1 or more "chunks" separated by an `CHUNKS_FILE_END_OF_CHUNK` terminator.
 pub fn parse_chunks_file<'a, S: StrStream, R: Report, B: ReportBuilder<R>>(
     buf: &mut ReportOutputStream<S, R, B>,
 ) -> PResult<()>
 where
     S: Stream<Slice = &'a str>,
 {
-    let _: Vec<_> =
-        preceded(opt(chunks_file_header), separated(1.., chunk, END_OF_CHUNK)).parse_next(buf)?;
+    let _: Vec<_> = preceded(
+        opt(chunks_file_header),
+        separated(1.., chunk, CHUNKS_FILE_END_OF_CHUNK),
+    )
+    .parse_next(buf)?;
 
     Ok(())
 }
@@ -1715,8 +1719,8 @@ mod tests {
             ("\n", Ok(())),
             // The last line in the entire chunks file ends in EOF, not \n
             ("", Ok(())),
-            // `END_OF_CHUNK` begins with a `\n` so we know the current line is empty
-            (END_OF_CHUNK, Ok(())),
+            // `CHUNKS_FILE_END_OF_CHUNK` begins with a `\n` so we know the current line is empty
+            (CHUNKS_FILE_END_OF_CHUNK, Ok(())),
         ];
         let expected_line_count = valid_test_cases.len();
 
