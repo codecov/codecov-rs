@@ -57,9 +57,9 @@ select
   coverage_sample.total_branches,
   method_data.hit_complexity_paths,
   method_data.total_complexity,
-  json_group_array(branches_data.branch) as missing_branches,
-  json_group_array(formatted_span_data.pyreport_partial) as partials,
-  json_group_array(other_contexts.name) as labels
+  json_group_array(branches_data.branch) filter (where branches_data.branch is not null) as missing_branches,
+  json_group_array(formatted_span_data.pyreport_partial) filter (where formatted_span_data.pyreport_partial is not null) as partials,
+  json_group_array(other_contexts.name) filter (where other_contexts.name is not null) as labels
 from
   coverage_sample
 left join
@@ -123,9 +123,9 @@ select
   line_sessions.total_branches,
   line_sessions.hit_complexity_paths,
   line_sessions.total_complexity,
-  line_sessions.missing_branches,
-  line_sessions.partials,
-  line_sessions.labels
+  iif(line_sessions.missing_branches = json_array(), null, line_sessions.missing_branches) as missing_branches,
+  iif(line_sessions.partials = json_array(), null, line_sessions.partials) as partials,
+  iif(line_sessions.labels = json_array(), null, line_sessions.labels) as labels
 from
   line_sessions
 left join
