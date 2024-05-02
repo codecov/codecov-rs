@@ -195,10 +195,15 @@ pub fn sql_to_chunks(report: &SqliteReport, output_file: &mut File) -> Result<()
 
             if is_new_chunk {
                 let present_sessions = row.get(9).and_then(|s| json_value_from_sql(s, 9))?;
+                let delimiter = if current_chunk.is_none() {
+                    ""
+                } else {
+                    CHUNKS_FILE_END_OF_CHUNK
+                };
                 let _ = output_file.write(
                     format!(
                         "{}{}",
-                        CHUNKS_FILE_END_OF_CHUNK,
+                        delimiter,
                         json!({"present_sessions": present_sessions})
                     )
                     .as_bytes(),
