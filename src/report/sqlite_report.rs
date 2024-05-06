@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::{
     error::Result,
-    report::{models, models::json_value_from_sql, Report, ReportBuilder},
+    report::{models, Report, ReportBuilder},
 };
 
 static MIGRATIONS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/migrations");
@@ -43,18 +43,10 @@ impl Report for SqliteReport {
         let mut stmt = self
             .conn
             .prepare_cached("SELECT id, path FROM source_file")?;
-        let rows = stmt.query_map([], |row| {
-            Ok(models::SourceFile {
-                id: row.get(0)?,
-                path: row.get(1)?,
-            })
-        })?;
-
-        let mut result = Vec::new();
-        for row in rows {
-            result.push(row?);
-        }
-        Ok(result)
+        let files = stmt
+            .query_map([], |row| row.try_into())?
+            .collect::<rusqlite::Result<Vec<models::SourceFile>>>()?;
+        Ok(files)
     }
 
     // TODO: implement for real, just using for integration tests
@@ -62,19 +54,10 @@ impl Report for SqliteReport {
         let mut stmt = self
             .conn
             .prepare_cached("SELECT id, context_type, name FROM context")?;
-        let rows = stmt.query_map([], |row| {
-            Ok(models::Context {
-                id: row.get(0)?,
-                context_type: row.get(1)?,
-                name: row.get(2)?,
-            })
-        })?;
-
-        let mut result = Vec::new();
-        for row in rows {
-            result.push(row?);
-        }
-        Ok(result)
+        let contexts = stmt
+            .query_map([], |row| row.try_into())?
+            .collect::<rusqlite::Result<Vec<models::Context>>>()?;
+        Ok(contexts)
     }
 
     // TODO implement for real, just using for integration tests
@@ -82,23 +65,10 @@ impl Report for SqliteReport {
         let mut stmt = self
             .conn
             .prepare_cached("SELECT id, source_file_id, line_no, coverage_type, hits, hit_branches, total_branches FROM coverage_sample")?;
-        let rows = stmt.query_map([], |row| {
-            Ok(models::CoverageSample {
-                id: row.get(0)?,
-                source_file_id: row.get(1)?,
-                line_no: row.get(2)?,
-                coverage_type: row.get(3)?,
-                hits: row.get(4)?,
-                hit_branches: row.get(5)?,
-                total_branches: row.get(6)?,
-            })
-        })?;
-
-        let mut result = Vec::new();
-        for row in rows {
-            result.push(row?);
-        }
-        Ok(result)
+        let samples = stmt
+            .query_map([], |row| row.try_into())?
+            .collect::<rusqlite::Result<Vec<models::CoverageSample>>>()?;
+        Ok(samples)
     }
 
     // TODO implement for real, just using for integration tests
@@ -109,19 +79,10 @@ impl Report for SqliteReport {
         let mut stmt = self
             .conn
             .prepare_cached("SELECT context.id, context.context_type, context.name FROM context INNER JOIN context_assoc ON context.id = context_assoc.context_id WHERE context_assoc.sample_id = ?1")?;
-        let rows = stmt.query_map([sample.id], |row| {
-            Ok(models::Context {
-                id: row.get(0)?,
-                context_type: row.get(1)?,
-                name: row.get(2)?,
-            })
-        })?;
-
-        let mut result = Vec::new();
-        for row in rows {
-            result.push(row?);
-        }
-        Ok(result)
+        let contexts = stmt
+            .query_map([sample.id], |row| row.try_into())?
+            .collect::<rusqlite::Result<Vec<models::Context>>>()?;
+        Ok(contexts)
     }
 
     // TODO implement for real, just using for integration tests
@@ -132,51 +93,16 @@ impl Report for SqliteReport {
         let mut stmt = self
             .conn
             .prepare_cached("SELECT sample.id, sample.source_file_id, sample.line_no, sample.coverage_type, sample.hits, sample.hit_branches, sample.total_branches FROM coverage_sample sample INNER JOIN source_file ON sample.source_file_id = source_file.id WHERE source_file_id=?1")?;
-        let rows = stmt.query_map([file.id], |row| {
-            Ok(models::CoverageSample {
-                id: row.get(0)?,
-                source_file_id: row.get(1)?,
-                line_no: row.get(2)?,
-                coverage_type: row.get(3)?,
-                hits: row.get(4)?,
-                hit_branches: row.get(5)?,
-                total_branches: row.get(6)?,
-            })
-        })?;
-
-        let mut result = Vec::new();
-        for row in rows {
-            result.push(row?);
-        }
-        Ok(result)
+        let samples = stmt
+            .query_map([file.id], |row| row.try_into())?
+            .collect::<rusqlite::Result<Vec<models::CoverageSample>>>()?;
+        Ok(samples)
     }
 
     fn get_details_for_upload(&self, upload: &models::Context) -> Result<models::UploadDetails> {
         assert_eq!(upload.context_type, models::ContextType::Upload);
         let mut stmt = self.conn.prepare_cached("SELECT context_id, timestamp, raw_upload_url, flags, provider, build, name, job_name, ci_run_url, state, env, session_type, session_extras FROM upload_details WHERE context_id = ?1")?;
-        Ok(stmt.query_row([upload.id], |row| {
-            Ok(models::UploadDetails {
-                context_id: row.get(0)?,
-                timestamp: row.get(1)?,
-                raw_upload_url: row.get(2)?,
-                flags: Some(
-                    row.get::<usize, String>(3)
-                        .and_then(|s| json_value_from_sql(s, 3))?,
-                ),
-                provider: row.get(4)?,
-                build: row.get(5)?,
-                name: row.get(6)?,
-                job_name: row.get(7)?,
-                ci_run_url: row.get(8)?,
-                state: row.get(9)?,
-                env: row.get(10)?,
-                session_type: row.get(11)?,
-                session_extras: Some(
-                    row.get::<usize, String>(12)
-                        .and_then(|s| json_value_from_sql(s, 12))?,
-                ),
-            })
-        })?)
+        Ok(stmt.query_row([upload.id], |row| row.try_into())?)
     }
 
     /// Merge `other` into `self` without modifying `other`.
@@ -230,10 +156,7 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
 
         Ok(
             stmt.query_row((seahash::hash(path.as_bytes()) as i64, path), |row| {
-                Ok(models::SourceFile {
-                    id: row.get(0)?,
-                    path: row.get(1)?,
-                })
+                row.try_into()
             })?,
         )
     }
@@ -250,13 +173,7 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
                 context_type.to_string(),
                 name,
             ),
-            |row| {
-                Ok(models::Context {
-                    id: row.get(0)?,
-                    context_type: row.get(1)?,
-                    name: row.get(2)?,
-                })
-            },
+            |row| row.try_into(),
         )?)
     }
 

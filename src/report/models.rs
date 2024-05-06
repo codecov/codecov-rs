@@ -172,6 +172,17 @@ pub struct SourceFile {
     pub path: String,
 }
 
+impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for SourceFile {
+    type Error = rusqlite::Error;
+
+    fn try_from(row: &'a ::rusqlite::Row) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: row.get(row.as_ref().column_index("id")?)?,
+            path: row.get(row.as_ref().column_index("path")?)?,
+        })
+    }
+}
+
 /// Each line in a source file should have a [`CoverageSample`] record when
 /// possible, whether it's a line/statement, a branch, or a method declaration.
 /// The `coverage_sample` table should be sufficient to paint green/yellow/red
@@ -212,6 +223,22 @@ pub struct CoverageSample {
     pub total_branches: Option<i64>,
 }
 
+impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for CoverageSample {
+    type Error = rusqlite::Error;
+
+    fn try_from(row: &'a ::rusqlite::Row) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: row.get(row.as_ref().column_index("id")?)?,
+            source_file_id: row.get(row.as_ref().column_index("source_file_id")?)?,
+            line_no: row.get(row.as_ref().column_index("line_no")?)?,
+            coverage_type: row.get(row.as_ref().column_index("coverage_type")?)?,
+            hits: row.get(row.as_ref().column_index("hits")?)?,
+            hit_branches: row.get(row.as_ref().column_index("hit_branches")?)?,
+            total_branches: row.get(row.as_ref().column_index("total_branches")?)?,
+        })
+    }
+}
+
 /// If raw coverage data includes information about which specific branches
 /// stemming from some line were or weren't covered, it can be stored here.
 #[derive(PartialEq, Debug, Default, Clone)]
@@ -231,6 +258,21 @@ pub struct BranchesData {
     /// An identifier of some kind (see `branch_format`) distinguishing this
     /// branch from others that stem from the same line.
     pub branch: String,
+}
+
+impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for BranchesData {
+    type Error = rusqlite::Error;
+
+    fn try_from(row: &'a ::rusqlite::Row) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: row.get(row.as_ref().column_index("id")?)?,
+            source_file_id: row.get(row.as_ref().column_index("source_file_id")?)?,
+            sample_id: row.get(row.as_ref().column_index("sample_id")?)?,
+            hits: row.get(row.as_ref().column_index("hits")?)?,
+            branch_format: row.get(row.as_ref().column_index("branch_format")?)?,
+            branch: row.get(row.as_ref().column_index("branch")?)?,
+        })
+    }
 }
 
 /// If raw coverage data includes additional metrics for methods (cyclomatic
@@ -262,6 +304,23 @@ pub struct MethodData {
 
     /// Total cyclomatic complexity of the method.
     pub total_complexity: Option<i64>,
+}
+
+impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for MethodData {
+    type Error = rusqlite::Error;
+
+    fn try_from(row: &'a ::rusqlite::Row) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: row.get(row.as_ref().column_index("id")?)?,
+            source_file_id: row.get(row.as_ref().column_index("source_file_id")?)?,
+            sample_id: row.get(row.as_ref().column_index("sample_id")?)?,
+            line_no: row.get(row.as_ref().column_index("line_no")?)?,
+            hit_branches: row.get(row.as_ref().column_index("hit_branches")?)?,
+            total_branches: row.get(row.as_ref().column_index("total_branches")?)?,
+            hit_complexity_paths: row.get(row.as_ref().column_index("hit_complexity_paths")?)?,
+            total_complexity: row.get(row.as_ref().column_index("total_complexity")?)?,
+        })
+    }
 }
 
 /// If raw coverage data presents coverage information in terms of `(start_line,
@@ -304,6 +363,23 @@ pub struct SpanData {
     pub end_col: Option<i64>,
 }
 
+impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for SpanData {
+    type Error = rusqlite::Error;
+
+    fn try_from(row: &'a ::rusqlite::Row) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: row.get(row.as_ref().column_index("id")?)?,
+            source_file_id: row.get(row.as_ref().column_index("source_file_id")?)?,
+            sample_id: row.get(row.as_ref().column_index("sample_id")?)?,
+            hits: row.get(row.as_ref().column_index("hits")?)?,
+            start_line: row.get(row.as_ref().column_index("start_line")?)?,
+            start_col: row.get(row.as_ref().column_index("start_col")?)?,
+            end_line: row.get(row.as_ref().column_index("end_line")?)?,
+            end_col: row.get(row.as_ref().column_index("end_col")?)?,
+        })
+    }
+}
+
 /// Ties a [`Context`] to specific measurement data.
 #[derive(PartialEq, Debug, Default, Clone)]
 pub struct ContextAssoc {
@@ -312,6 +388,20 @@ pub struct ContextAssoc {
     pub branch_id: Option<Uuid>,
     pub method_id: Option<Uuid>,
     pub span_id: Option<Uuid>,
+}
+
+impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for ContextAssoc {
+    type Error = rusqlite::Error;
+
+    fn try_from(row: &'a ::rusqlite::Row) -> Result<Self, Self::Error> {
+        Ok(Self {
+            context_id: row.get(row.as_ref().column_index("context_id")?)?,
+            sample_id: row.get(row.as_ref().column_index("sample_id")?)?,
+            branch_id: row.get(row.as_ref().column_index("branch_id")?)?,
+            method_id: row.get(row.as_ref().column_index("method_id")?)?,
+            span_id: row.get(row.as_ref().column_index("span_id")?)?,
+        })
+    }
 }
 
 /// Context that can be associated with measurements to allow querying/filtering
@@ -325,6 +415,18 @@ pub struct Context {
     /// Some sort of unique name for this context, such as a test case name or a
     /// CI results URI.
     pub name: String,
+}
+
+impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for Context {
+    type Error = rusqlite::Error;
+
+    fn try_from(row: &'a ::rusqlite::Row) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: row.get(row.as_ref().column_index("id")?)?,
+            context_type: row.get(row.as_ref().column_index("context_type")?)?,
+            name: row.get(row.as_ref().column_index("name")?)?,
+        })
+    }
 }
 
 #[derive(PartialEq, Debug, Default, Clone)]
@@ -343,4 +445,38 @@ pub struct UploadDetails {
     pub env: Option<String>,
     pub session_type: Option<String>,
     pub session_extras: Option<JsonVal>,
+}
+
+impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for UploadDetails {
+    type Error = rusqlite::Error;
+
+    fn try_from(row: &'a ::rusqlite::Row) -> Result<Self, Self::Error> {
+        let flags_index = row.as_ref().column_index("flags")?;
+        let flags = if let Some(flags) = row.get(flags_index)? {
+            Some(json_value_from_sql(flags, flags_index)?)
+        } else {
+            None
+        };
+        let session_extras_index = row.as_ref().column_index("session_extras")?;
+        let session_extras = if let Some(session_extras) = row.get(session_extras_index)? {
+            Some(json_value_from_sql(session_extras, session_extras_index)?)
+        } else {
+            None
+        };
+        Ok(Self {
+            context_id: row.get(row.as_ref().column_index("context_id")?)?,
+            timestamp: row.get(row.as_ref().column_index("timestamp")?)?,
+            raw_upload_url: row.get(row.as_ref().column_index("raw_upload_url")?)?,
+            flags,
+            provider: row.get(row.as_ref().column_index("provider")?)?,
+            build: row.get(row.as_ref().column_index("build")?)?,
+            name: row.get(row.as_ref().column_index("name")?)?,
+            job_name: row.get(row.as_ref().column_index("job_name")?)?,
+            ci_run_url: row.get(row.as_ref().column_index("ci_run_url")?)?,
+            state: row.get(row.as_ref().column_index("state")?)?,
+            env: row.get(row.as_ref().column_index("env")?)?,
+            session_type: row.get(row.as_ref().column_index("session_type")?)?,
+            session_extras,
+        })
+    }
 }
