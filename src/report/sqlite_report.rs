@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::{
     error::Result,
-    report::{models, Report, ReportBuilder},
+    report::{models, Report, ReportBuilder, ReportTotals},
 };
 
 static MIGRATIONS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/migrations");
@@ -133,6 +133,14 @@ impl Report for SqliteReport {
         self.conn.execute_batch("DETACH DATABASE other")?;
 
         Ok(())
+    }
+
+    fn totals(&self) -> Result<ReportTotals> {
+        let mut stmt = self
+            .conn
+            .prepare_cached(include_str!("queries/totals.sql"))?;
+
+        Ok(stmt.query_row([], |row| row.try_into())?)
     }
 }
 
@@ -357,6 +365,7 @@ mod tests {
 
     mod sqlite_report {
         use super::*;
+        use crate::report::CoverageTotals;
 
         #[test]
         fn test_new_report_runs_migrations() {
@@ -517,6 +526,96 @@ mod tests {
                     .sort_by_key(|s| s.id),
                 [&line_5, &line_6].sort_by_key(|s| s.id),
             );
+        }
+
+        #[test]
+        fn test_totals() {
+            let ctx = setup();
+            let db_file = ctx.temp_dir.path().join("db.sqlite");
+            assert!(!db_file.exists());
+            let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+
+            let file_1 = report_builder
+                .insert_file("src/report.rs".to_string())
+                .unwrap();
+            let file_2 = report_builder
+                .insert_file("src/report/models.rs".to_string())
+                .unwrap();
+            let context_1 = report_builder
+                .insert_context(models::ContextType::Upload, "codecov-rs CI")
+                .unwrap();
+            let context_2 = report_builder
+                .insert_context(models::ContextType::TestCase, "test_totals")
+                .unwrap();
+            let line_1 = report_builder
+                .insert_coverage_sample(models::CoverageSample {
+                    source_file_id: file_1.id,
+                    line_no: 1,
+                    coverage_type: models::CoverageType::Line,
+                    ..Default::default()
+                })
+                .unwrap();
+            let line_2 = report_builder
+                .insert_coverage_sample(models::CoverageSample {
+                    source_file_id: file_2.id,
+                    line_no: 1,
+                    coverage_type: models::CoverageType::Branch,
+                    hit_branches: Some(1),
+                    total_branches: Some(2),
+                    ..Default::default()
+                })
+                .unwrap();
+            let line_3 = report_builder
+                .insert_coverage_sample(models::CoverageSample {
+                    source_file_id: file_2.id,
+                    line_no: 2,
+                    coverage_type: models::CoverageType::Method,
+                    hits: Some(2),
+                    ..Default::default()
+                })
+                .unwrap();
+            let _ = report_builder.insert_method_data(models::MethodData {
+                source_file_id: file_2.id,
+                sample_id: Some(line_3.id),
+                line_no: Some(2),
+                hit_complexity_paths: Some(2),
+                total_complexity: Some(4),
+                ..Default::default()
+            });
+            for line in [&line_1, &line_2, &line_3] {
+                let _ = report_builder.associate_context(models::ContextAssoc {
+                    context_id: context_1.id,
+                    sample_id: Some(line.id),
+                    ..Default::default()
+                });
+                let _ = report_builder.associate_context(models::ContextAssoc {
+                    context_id: context_2.id,
+                    sample_id: Some(line.id),
+                    ..Default::default()
+                });
+            }
+
+            let report = report_builder.build();
+
+            let expected_totals = ReportTotals {
+                files: 2,
+                uploads: 1,
+                test_cases: 1,
+                coverage: CoverageTotals {
+                    hit_lines: 0,
+                    total_lines: 1,
+                    hit_branches: 1,
+                    total_branches: 2,
+                    total_branch_roots: 1,
+                    hit_methods: 1,
+                    total_methods: 1,
+                    hit_complexity_paths: 2,
+                    total_complexity: 4,
+                },
+            };
+
+            let totals = report.totals().unwrap();
+            assert_eq!(totals, expected_totals);
         }
     }
 

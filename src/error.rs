@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-pub type Result<O> = std::result::Result<O, CodecovError>;
+pub type Result<T, E = CodecovError> = std::result::Result<T, E>;
 
 #[derive(Error, Debug)]
 pub enum CodecovError {
