@@ -17,6 +17,7 @@ use crate::error::Result;
 
 mod chunks;
 mod report_json;
+pub mod types;
 
 pub(crate) const CHUNKS_FILE_HEADER_TERMINATOR: &str = "\n<<<<< end_of_header >>>>>\n";
 pub(crate) const CHUNKS_FILE_END_OF_CHUNK: &str = "\n<<<<< end_of_chunk >>>>>\n";

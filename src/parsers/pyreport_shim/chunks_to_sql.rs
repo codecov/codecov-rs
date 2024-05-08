@@ -19,8 +19,8 @@ use super::super::{
     json::{json_value, parse_object, parse_str, JsonMap, JsonVal},
 };
 use crate::report::{
-    models::{ContextType, CoverageType},
-    pyreport::{CHUNKS_FILE_END_OF_CHUNK, CHUNKS_FILE_HEADER_TERMINATOR},
+    models::ContextType,
+    pyreport::{types::*, CHUNKS_FILE_END_OF_CHUNK, CHUNKS_FILE_HEADER_TERMINATOR},
     Report, ReportBuilder,
 };
 
@@ -95,28 +95,6 @@ impl<R: Report, B: ReportBuilder<R>> Debug for ParseCtx<R, B> {
     }
 }
 
-/// Enum representing the possible values of the "coverage" field in a
-/// ReportLine or LineSession object.
-///
-/// Most of the time, we can parse this field into a `HitCount` or
-/// `BranchesTaken`.
-#[derive(Clone, Debug, PartialEq)]
-pub enum PyreportCoverage {
-    /// Contains the number of times the target was hit (or sometimes just 0 or
-    /// 1). Most formats represent line and method coverage this way. In some
-    /// chunks files it is mistakenly used for branch coverage.
-    HitCount(u32),
-
-    /// Contains the number of branches taken and the total number of branches
-    /// possible. Ex: "1/2". Most formats represent branch coverage this
-    /// way. In some chunks files it is mistakenly used for method coverage.
-    BranchesTaken { covered: u32, total: u32 },
-
-    /// Indicates that the target is partially covered but we don't know about
-    /// covered/missed branches.
-    Partial(),
-}
-
 /// Parses the possible values of the "coverage" field in a [`ReportLine`] or
 /// [`LineSession`]. See [`PyreportCoverage`]. Most of the time, this field can
 /// be parsed into a `HitCount` or `BranchesTaken`.
@@ -160,19 +138,6 @@ pub fn coverage_type<S: StrStream, R: Report, B: ReportBuilder<R>>(
     .parse_next(buf)
 }
 
-/// Enum representing the possible values of the "complexity" field in a
-/// [`ReportLine`] or [`LineSession`]. This is generally (exclusively?) used for
-/// method coverage.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Complexity {
-    /// Contains the total cyclomatic complexity of the target.
-    Total(u32),
-
-    /// Contains the number of paths covered and the total cyclomatic complexity
-    /// of the target.
-    PathsTaken { covered: u32, total: u32 },
-}
-
 /// Parses value of the "complexity" field in a `ReportLine` or `LineSession`.
 ///
 /// Examples: `1`, `3`, `[0, 1]`, `[2, 2]`
@@ -189,22 +154,6 @@ pub fn complexity<S: StrStream, R: Report, B: ReportBuilder<R>>(
         parse_u32.map(Complexity::Total),
     ))
     .parse_next(buf)
-}
-
-/// Enum representing the possible shapes of data about missing branch coverage.
-#[derive(Clone, Debug, PartialEq)]
-pub enum MissingBranch {
-    /// Identifies a specific branch by its "block" and "branch" numbers chosen
-    /// by the instrumentation. Lcov does it this way.
-    BlockAndBranch(u32, u32),
-
-    /// Identifies a specific branch as one of a set of conditions tied to a
-    /// line. In Cobertura, this condition may be accompanied by a "type" such
-    /// as "jump".
-    Condition(u32, Option<String>),
-
-    /// Identifies a specific branch as a line number the branch is located at.
-    Line(u32),
 }
 
 /// Attempts to parse the values in the "branches" field of a [`LineSession`]
@@ -263,13 +212,6 @@ where
     .parse_next(buf)
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Partial {
-    start_col: Option<u32>,
-    end_col: Option<u32>,
-    coverage: PyreportCoverage,
-}
-
 /// Parses values in the "partials" field of a `LineSession`. These values don't
 /// necessarily have to do with partial branch coverage; what they describe is
 /// the coverage status of different subspans of a single line.
@@ -301,38 +243,6 @@ pub fn partial_spans<S: StrStream, R: Report, B: ReportBuilder<R>>(
     let span_with_coverage = delimited('[', span_with_coverage, ']');
 
     delimited('[', separated(0.., span_with_coverage, (ws, ',', ws)), ']').parse_next(buf)
-}
-
-/// Represents the coverage measurements taken for a specific "session". Each
-/// `LineSession` will correspond to a
-/// [`crate::report::models::CoverageSample`].
-///
-/// Each upload to our system constitutes a "session" and may be tagged with
-/// flags or other context that we want to filter on when viewing report data.
-#[derive(Debug, PartialEq)]
-pub struct LineSession {
-    /// This ID indicates which session the measurement was taken in. It can be
-    /// used as a key in `buf.state.report_json_sessions` to get the ID of a
-    /// [`crate::report::models::Context`] in order to create a
-    /// [`crate::report::models::ContextAssoc`].
-    session_id: usize,
-
-    /// The coverage measurement that was taken in this session. The
-    /// `CoverageType` is "inherited" from the [`ReportLine`] that this
-    /// `LineSession` is a part of.
-    coverage: PyreportCoverage,
-
-    /// A list of specific branches/conditions stemming from this line that were
-    /// not covered if this line is a branch. May be omitted, or may be null.
-    branches: Option<Option<Vec<MissingBranch>>>,
-
-    /// A list of "line partials" which indicate different coverage values for
-    /// different subspans of this line. May be omitted, or may be null.
-    partials: Option<Option<Vec<Partial>>>,
-
-    /// A measure of the cyclomatic complexity of the method declared on this
-    /// line if this line is a method. May be omitted, or may be null.
-    complexity: Option<Option<Complexity>>,
 }
 
 /// Parses a [`LineSession`]. Each [`LineSession`] corresponds to a
@@ -376,29 +286,6 @@ where
     json_value.parse_next(buf)
 }
 
-/// Enum representing a label which is applicable for a particular measurement.
-/// An example of a label is a test case that was running when the measurement
-/// was taken.
-///
-/// Newer reports store IDs which can later be mapped back to an original string
-/// label with an index found in the chunks file header. Older reports stored
-/// many copies of the full strings.
-#[derive(Clone, Debug)]
-pub enum RawLabel {
-    /// A numeric ID that was assigned to this label. The original label can be
-    /// accessed in the `"labels_index"` key in the chunks file's header.
-    /// For our parser's purposes, we can access the ID of the
-    /// [`crate::report::models::Context`] created for this label in
-    /// `buf.state.labels_index`.
-    LabelId(u32),
-
-    /// The name of the label. If we have encountered this label before, it
-    /// should be in `buf.state.labels_index` pointing at the ID for a
-    /// [`crate::report::models::Context`]. Otherwise, we should create that
-    /// `Context` + mapping ourselves.
-    LabelName(String),
-}
-
 /// Parses an individual [`RawLabel`] in a [`CoverageDatapoint`].
 ///
 /// Examples:
@@ -439,34 +326,6 @@ pub fn label<S: StrStream, R: Report, B: ReportBuilder<R>>(
     }
 }
 
-/// An object that is similar to a [`LineSession`], containing coverage
-/// measurements specific to a session. It is mostly redundant and ignored in
-/// this parser, save for the `labels` field which is not found anywhere else.
-#[derive(Clone, Debug, PartialEq)]
-pub struct CoverageDatapoint {
-    /// This ID indicates which session the measurement was taken in. It can be
-    /// used as a key in `buf.state.report_json_sessions` to get the ID of a
-    /// [`crate::report::models::Context`] in order to create a
-    /// [`crate::report::models::ContextAssoc`].
-    session_id: u32,
-
-    /// A redundant copy of the coverage measurement for a session. We prefer
-    /// the value from the [`LineSession`].
-    _coverage: PyreportCoverage,
-
-    /// A redundant copy of the `CoverageType`. We use the value from the
-    /// [`ReportLine`].
-    ///
-    /// Technically this field is optional, but the way we serialize it when
-    /// it's missing is identical to the way we serialize
-    /// [`crate::report::models::CoverageType::Line`] so there's
-    /// no way to tell which it is when deserializing.
-    _coverage_type: Option<CoverageType>,
-
-    /// A list of labels (e.g. test cases) that apply to this datapoint.
-    labels: Vec<String>,
-}
-
 /// Parses the (largely redundant) [`CoverageDatapoint`]. Most of its fields are
 /// also found on [`ReportLine`] or [`LineSession`], except for the `labels`
 /// field.
@@ -491,69 +350,6 @@ pub fn coverage_datapoint<S: StrStream, R: Report, B: ReportBuilder<R>>(
     }}
     .parse_next(buf)?;
     Ok((datapoint.session_id, datapoint))
-}
-
-#[derive(Debug, PartialEq)]
-pub struct ReportLine {
-    coverage: PyreportCoverage,
-    coverage_type: CoverageType,
-    sessions: Vec<LineSession>,
-    _messages: Option<Option<JsonVal>>,
-    _complexity: Option<Option<Complexity>>,
-    datapoints: Option<Option<HashMap<u32, CoverageDatapoint>>>,
-}
-
-/// Account for some quirks and malformed data. See code comments for details.
-fn normalize_coverage_measurement(
-    coverage: &PyreportCoverage,
-    coverage_type: &CoverageType,
-) -> (PyreportCoverage, CoverageType) {
-    match (coverage, coverage_type) {
-        // Clojure uses `true` to indicate partial coverage without giving any specific information
-        // about the missed/covered branches. Our parsers for other formats just make up "1/2" and
-        // move on, so we do that here as well.
-        (PyreportCoverage::Partial(), _) => (
-            PyreportCoverage::BranchesTaken {
-                covered: 1,
-                total: 2,
-            },
-            *coverage_type,
-        ),
-
-        // For method coverage, Jacoco contains aggregated instruction coverage, branch coverage,
-        // and cyclomatic complexity metrics. If the branch coverage fields are present and
-        // non-zero, our parser will prefer them even though method coverage should be an int.
-        // We normalize by treating the numerator of the branch coverage as a hit count, so "0/2"
-        // is a miss but "3/4" is 3 hits. Not great, but the data is bugged to begin with.
-        (PyreportCoverage::BranchesTaken { covered, .. }, CoverageType::Method) => {
-            (PyreportCoverage::HitCount(*covered), CoverageType::Method)
-        }
-
-        // Our Go parser does not properly fill out the `coverage_type` field. If the `coverage`
-        // field has branch data in it, override the coverage type.
-        (PyreportCoverage::BranchesTaken { .. }, CoverageType::Line) => {
-            (coverage.clone(), CoverageType::Branch)
-        }
-
-        // We see some instances of Scale Scoverage reports being incorrectly translated into
-        // Cobertura reports. In Scoverage, 0 for branch coverage means miss, 1 means partial, and
-        // 2 means hit. It seems when converting to Cobertura, the value is taken as a raw hit
-        // count and not coverted to `branch-rate` or something, and our Cobertura parser doesn't
-        // handle it. So, we handle it here.
-        (PyreportCoverage::HitCount(n), CoverageType::Branch) => {
-            assert!(*n == 0 || *n == 1 || *n == 2); // TODO soften assert
-            (
-                PyreportCoverage::BranchesTaken {
-                    covered: *n,
-                    total: 2,
-                },
-                CoverageType::Branch,
-            )
-        }
-
-        // Everything's fine.
-        (_, _) => (coverage.clone(), *coverage_type),
-    }
 }
 
 /// Parses a [`ReportLine`]. A [`ReportLine`] itself does not correspond to
@@ -1415,83 +1211,6 @@ mod tests {
             buf.input = test_case.0;
             assert_eq!(coverage_datapoint.parse_next(&mut buf), test_case.1);
         }
-    }
-
-    #[test]
-    fn test_normalize_coverage_measurement() {
-        // Cases that don't need adjustmnet
-        assert_eq!(
-            normalize_coverage_measurement(&PyreportCoverage::HitCount(3), &CoverageType::Line),
-            (PyreportCoverage::HitCount(3), CoverageType::Line)
-        );
-        assert_eq!(
-            normalize_coverage_measurement(&PyreportCoverage::HitCount(3), &CoverageType::Method),
-            (PyreportCoverage::HitCount(3), CoverageType::Method)
-        );
-        assert_eq!(
-            normalize_coverage_measurement(
-                &PyreportCoverage::BranchesTaken {
-                    covered: 2,
-                    total: 4
-                },
-                &CoverageType::Branch
-            ),
-            (
-                PyreportCoverage::BranchesTaken {
-                    covered: 2,
-                    total: 4
-                },
-                CoverageType::Branch
-            )
-        );
-
-        // Cases that need adjustment
-        assert_eq!(
-            normalize_coverage_measurement(&PyreportCoverage::Partial(), &CoverageType::Branch),
-            (
-                PyreportCoverage::BranchesTaken {
-                    covered: 1,
-                    total: 2
-                },
-                CoverageType::Branch
-            )
-        );
-        assert_eq!(
-            normalize_coverage_measurement(&PyreportCoverage::HitCount(1), &CoverageType::Branch),
-            (
-                PyreportCoverage::BranchesTaken {
-                    covered: 1,
-                    total: 2
-                },
-                CoverageType::Branch
-            )
-        );
-        assert_eq!(
-            normalize_coverage_measurement(
-                &PyreportCoverage::BranchesTaken {
-                    covered: 1,
-                    total: 2
-                },
-                &CoverageType::Line
-            ),
-            (
-                PyreportCoverage::BranchesTaken {
-                    covered: 1,
-                    total: 2
-                },
-                CoverageType::Branch
-            )
-        );
-        assert_eq!(
-            normalize_coverage_measurement(
-                &PyreportCoverage::BranchesTaken {
-                    covered: 1,
-                    total: 2
-                },
-                &CoverageType::Method,
-            ),
-            (PyreportCoverage::HitCount(1), CoverageType::Method,)
-        );
     }
 
     #[test]
