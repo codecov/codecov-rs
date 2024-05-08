@@ -1,6 +1,6 @@
 pub mod json;
 
-#[cfg(feature = "pyreport_shim")]
-pub mod pyreport_shim;
+#[cfg(feature = "pyreport")]
+pub mod pyreport;
 
 pub mod common;

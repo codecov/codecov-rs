@@ -6,7 +6,7 @@ pub mod models;
 pub mod sqlite;
 pub use sqlite::{SqliteReport, SqliteReportBuilder};
 
-#[cfg(feature = "pyreport_shim")]
+#[cfg(feature = "pyreport")]
 pub mod pyreport;
 
 use crate::error::Result;

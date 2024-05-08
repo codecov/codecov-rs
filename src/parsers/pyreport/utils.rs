@@ -1,9 +1,13 @@
-use super::{
-    Complexity, LineSession, MissingBranch, ParseCtx, Partial, PyreportCoverage, ReportLine,
-};
+use super::chunks::ParseCtx;
 use crate::{
     error::Result,
-    report::{models, Report, ReportBuilder},
+    report::{
+        models,
+        pyreport::types::{
+            Complexity, LineSession, MissingBranch, Partial, PyreportCoverage, ReportLine,
+        },
+        Report, ReportBuilder,
+    },
 };
 
 fn separate_pyreport_complexity(complexity: &Complexity) -> (Option<i64>, Option<i64>) {
@@ -193,8 +197,8 @@ mod tests {
 
     use mockall::predicate::*;
 
-    use super::{super::CoverageDatapoint, *};
-    use crate::report::{MockReport, MockReportBuilder};
+    use super::*;
+    use crate::report::{pyreport::types::CoverageDatapoint, MockReport, MockReportBuilder};
 
     struct Ctx {
         parse_ctx: ParseCtx<MockReport, MockReportBuilder<MockReport>>,

@@ -7,8 +7,8 @@ use std::{
 use codecov_rs::{
     parsers::{
         common::ReportBuilderCtx,
-        pyreport_shim,
-        pyreport_shim::{chunks_to_sql, report_json_to_sql},
+        pyreport,
+        pyreport::{chunks, report_json},
     },
     report::{models, Report, ReportBuilder, SqliteReport, SqliteReportBuilder},
 };
@@ -18,9 +18,8 @@ use winnow::Parser;
 mod common;
 
 type ReportJsonStream<'a> =
-    report_json_to_sql::ReportOutputStream<&'a str, SqliteReport, SqliteReportBuilder>;
-type ChunksStream<'a> =
-    chunks_to_sql::ReportOutputStream<&'a str, SqliteReport, SqliteReportBuilder>;
+    report_json::ReportOutputStream<&'a str, SqliteReport, SqliteReportBuilder>;
+type ChunksStream<'a> = chunks::ReportOutputStream<&'a str, SqliteReport, SqliteReportBuilder>;
 
 struct Ctx {
     _temp_dir: TempDir,
@@ -81,7 +80,7 @@ fn test_parse_report_json() {
 
     let expected_json_sessions = HashMap::from([(0, expected_sessions[0].id)]);
 
-    let (actual_files, actual_sessions) = report_json_to_sql::parse_report_json
+    let (actual_files, actual_sessions) = report_json::parse_report_json
         .parse_next(&mut buf)
         .expect("Failed to parse");
     assert_eq!(actual_files, expected_json_files);
@@ -126,7 +125,7 @@ fn test_parse_chunks_file() {
     report_json_sessions.insert(0, session.id);
 
     // Set up to call the chunks parser
-    let chunks_parse_ctx = chunks_to_sql::ParseCtx::new(
+    let chunks_parse_ctx = chunks::ParseCtx::new(
         report_builder,
         report_json_files.clone(),
         report_json_sessions.clone(),
@@ -137,7 +136,7 @@ fn test_parse_chunks_file() {
         state: chunks_parse_ctx,
     };
 
-    chunks_to_sql::parse_chunks_file
+    chunks::parse_chunks_file
         .parse_next(&mut buf)
         .expect("Failed to parse");
 
@@ -222,7 +221,7 @@ fn test_parse_pyreport() {
         .expect("Failed to open chunks file");
     let test_ctx = setup();
 
-    let report = pyreport_shim::parse_pyreport(&report_json_file, &chunks_file, test_ctx.db_file)
+    let report = pyreport::parse_pyreport(&report_json_file, &chunks_file, test_ctx.db_file)
         .expect("Failed to parse pyreport");
 
     let expected_files = vec![

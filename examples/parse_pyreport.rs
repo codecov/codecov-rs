@@ -1,6 +1,6 @@
 use std::{env, fs::File, path::PathBuf};
 
-use codecov_rs::{error::Result, parsers::pyreport_shim::parse_pyreport};
+use codecov_rs::{error::Result, parsers::pyreport::parse_pyreport};
 
 fn usage_error() -> ! {
     println!("Usage:");

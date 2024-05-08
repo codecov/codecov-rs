@@ -1,5 +1,3 @@
-mod utils;
-
 use std::{collections::HashMap, fmt, fmt::Debug};
 
 use winnow::{
@@ -11,12 +9,15 @@ use winnow::{
     PResult, Parser, Stateful,
 };
 
-use super::super::{
-    common::{
-        winnow::{nullable, parse_u32, ws, StrStream},
-        ReportBuilderCtx,
+use super::{
+    super::{
+        common::{
+            winnow::{nullable, parse_u32, ws, StrStream},
+            ReportBuilderCtx,
+        },
+        json::{json_value, parse_object, parse_str, JsonMap, JsonVal},
     },
-    json::{json_value, parse_object, parse_str, JsonMap, JsonVal},
+    utils,
 };
 use crate::report::{
     models::ContextType,
@@ -25,13 +26,13 @@ use crate::report::{
 };
 
 #[derive(PartialEq, Debug)]
-struct ChunkCtx {
+pub struct ChunkCtx {
     /// The index of this chunk in the overall sequence of chunks tells us which
     /// [`crate::report::models::SourceFile`] this chunk corresponds to.
-    index: usize,
+    pub index: usize,
 
     /// Each line in a chunk corresponds to a line in the source file.
-    current_line: i64,
+    pub current_line: i64,
 }
 
 /// Context needed to parse a chunks file.
@@ -48,20 +49,20 @@ pub struct ParseCtx<R: Report, B: ReportBuilder<R>> {
     /// header, this is populated all at once and the key is a numeric ID.
     /// Otherwise, this is populated as new labels are encountered and the key
     /// is the full name of the label.
-    labels_index: HashMap<String, i64>,
+    pub labels_index: HashMap<String, i64>,
 
     /// Context within the current chunk.
-    chunk: ChunkCtx,
+    pub chunk: ChunkCtx,
 
     /// The output of the report JSON parser includes a map from `chunk_index`
     /// to the ID of the [`crate::report::models::SourceFile`] that the
     /// chunk corresponds to.
-    report_json_files: HashMap<usize, i64>,
+    pub report_json_files: HashMap<usize, i64>,
 
     /// The output of the report JSON parser includes a map from `session_id` to
     /// the ID of the [`crate::report::models::Context`] that the session
     /// corresponds to.
-    report_json_sessions: HashMap<usize, i64>,
+    pub report_json_sessions: HashMap<usize, i64>,
 }
 
 pub type ReportOutputStream<S, R, B> = Stateful<S, ParseCtx<R, B>>;
@@ -413,11 +414,6 @@ where
     S: Stream<Slice = &'a str>,
 {
     buf.state.chunk.current_line += 1;
-
-    // A line is empty if the next character is `\n` or EOF. The
-    // `CHUNKS_FILE_END_OF_CHUNK` marker includes a leading `\n`, so if the next
-    // character is `\n` we have to make sure it isn't part of
-    // `CHUNKS_FILE_END_OF_CHUNK`.
 
     // A line is empty if the next character is `\n` or EOF. We don't consume that
     // next character from the stream though - we leave it there as either the

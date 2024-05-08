@@ -35,6 +35,6 @@ tempfile = "3.9.0"
 mockall = { version = "0.12.1", features = ["nightly"] }
 
 [features]
-default = ["pyreport_shim"]
+default = ["pyreport"]
 
-pyreport_shim = []
+pyreport= []

@@ -9,9 +9,11 @@ use crate::{
     report::{ReportBuilder, SqliteReport, SqliteReportBuilder},
 };
 
-pub mod report_json_to_sql;
+pub mod report_json;
 
-pub mod chunks_to_sql;
+pub mod chunks;
+
+mod utils;
 
 /// Parses the two parts of our Python report class and reshapes the data into a
 /// `SqliteReport`.
@@ -44,12 +46,11 @@ pub fn parse_pyreport(
     // Memory-map the input file so we don't have to read the whole thing into RAM
     let mmap_handle = unsafe { Mmap::map(report_json_file)? };
     let buf = unsafe { std::str::from_utf8_unchecked(&mmap_handle[..]) };
-    let mut stream =
-        report_json_to_sql::ReportOutputStream::<&str, SqliteReport, SqliteReportBuilder> {
-            input: buf,
-            state: ReportBuilderCtx::new(report_builder),
-        };
-    let (files, sessions) = report_json_to_sql::parse_report_json
+    let mut stream = report_json::ReportOutputStream::<&str, SqliteReport, SqliteReportBuilder> {
+        input: buf,
+        state: ReportBuilderCtx::new(report_builder),
+    };
+    let (files, sessions) = report_json::parse_report_json
         .parse_next(&mut stream)
         .map_err(|e| e.into_inner().unwrap_or_default())
         .map_err(CodecovError::ParserError)?;
@@ -59,13 +60,12 @@ pub fn parse_pyreport(
     let buf = unsafe { std::str::from_utf8_unchecked(&mmap_handle[..]) };
 
     // Move `report_builder` from the report JSON's parse context to this one
-    let chunks_ctx = chunks_to_sql::ParseCtx::new(stream.state.report_builder, files, sessions);
-    let mut chunks_stream =
-        chunks_to_sql::ReportOutputStream::<&str, SqliteReport, SqliteReportBuilder> {
-            input: buf,
-            state: chunks_ctx,
-        };
-    chunks_to_sql::parse_chunks_file
+    let chunks_ctx = chunks::ParseCtx::new(stream.state.report_builder, files, sessions);
+    let mut chunks_stream = chunks::ReportOutputStream::<&str, SqliteReport, SqliteReportBuilder> {
+        input: buf,
+        state: chunks_ctx,
+    };
+    chunks::parse_chunks_file
         .parse_next(&mut chunks_stream)
         .map_err(|e| e.into_inner().unwrap_or_default())
         .map_err(CodecovError::ParserError)?;
