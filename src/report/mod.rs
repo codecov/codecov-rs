@@ -6,6 +6,9 @@ pub mod models;
 pub mod sqlite;
 pub use sqlite::{SqliteReport, SqliteReportBuilder};
 
+#[cfg(feature = "pyreport_shim")]
+pub mod pyreport;
+
 use crate::error::Result;
 
 /// An interface for coverage data.

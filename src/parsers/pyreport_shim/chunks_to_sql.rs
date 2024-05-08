@@ -11,18 +11,16 @@ use winnow::{
     PResult, Parser, Stateful,
 };
 
-use super::{
-    super::{
-        common::{
-            winnow::{nullable, parse_u32, ws, StrStream},
-            ReportBuilderCtx,
-        },
-        json::{json_value, parse_object, parse_str, JsonMap, JsonVal},
+use super::super::{
+    common::{
+        winnow::{nullable, parse_u32, ws, StrStream},
+        ReportBuilderCtx,
     },
-    CHUNKS_FILE_END_OF_CHUNK, CHUNKS_FILE_HEADER_TERMINATOR,
+    json::{json_value, parse_object, parse_str, JsonMap, JsonVal},
 };
 use crate::report::{
     models::{ContextType, CoverageType},
+    pyreport::{CHUNKS_FILE_END_OF_CHUNK, CHUNKS_FILE_HEADER_TERMINATOR},
     Report, ReportBuilder,
 };
 
