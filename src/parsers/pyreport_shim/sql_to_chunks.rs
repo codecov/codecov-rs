@@ -6,7 +6,7 @@ use super::{CHUNKS_FILE_END_OF_CHUNK, CHUNKS_FILE_HEADER_TERMINATOR};
 use crate::{
     error::{CodecovError, Result},
     parsers::json::{JsonNumber, JsonVal},
-    report::{models, models::json_value_from_sql, SqliteReport},
+    report::{models, sqlite::json_value_from_sql, SqliteReport},
 };
 
 fn array_without_trailing_nulls(mut json_array: JsonVal) -> JsonVal {

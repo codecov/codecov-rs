@@ -1,11 +1,6 @@
 /*!
- * Database models for coverage data. SQLite schema/migrations in
- * `/migrations`. [Inspired by
- * coverage.py](https://coverage.readthedocs.io/en/latest/dbschema.html).
- *
- * Library users probably want to start by reading the docs for
- * [`crate::report::Report`]/[`crate::report::SqliteReport`] and
- * [`crate::report::ReportBuilder`]/[`crate::report::SqliteReportBuilder`].
+ * Models for coverage data to be used by [`crate::report::ReportBuilder`]
+ * and [`crate::report::Report`] implementations.
  *
  * An overview of the models and their relationships:
  * - Each source file in a report should have a [`SourceFile`] record.
@@ -31,6 +26,8 @@
  *   - [`SpanData`] can store coverage information that isn't presented
  *     line-by-line. Some formats report that a range from line X to line Y
  *     is covered, or that only part of a single line is covered.
+ * - [`ReportTotals`] and [`CoverageTotals`] aggregate coverage data for a
+ *   report/subset into useful metrics.
  *
  * Some choices were made that make merging multiple reports together very
  * simple:
@@ -45,6 +42,13 @@
  * with `INSERT OR IGNORE`, and the rest can be merged with a
  * regular `INSERT` without needing to update any foreign keys or anything.
  *
+ * SeaHash was chosen for hashed IDs due to:
+ * - wide usage
+ * - [Python bindings](https://pypi.org/project/seahash/)
+ * - portable and stable, results don't change
+ * - reads 8 bytes at a time, nice for longer inputs
+ * - outputs 64 bytes
+ *
  * SQLite `INTEGER` values are variable-size but they can be up to 64 bits,
  * signed, so numeric types use `i64`. Since our numeric data is
  * non-negative, we're effectively using using `u32`s in an `i64` wrapper.
@@ -52,19 +56,10 @@
  * and cast back to `u64` when querying.
  */
 
-use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use strum_macros::{Display, EnumString};
 use uuid::Uuid;
 
 use crate::parsers::json::JsonVal;
-
-/// Can't implement foreign traits (`ToSql`/`FromSql`) on foreign types
-/// (`serde_json::Value`) so this helper function fills in.
-pub fn json_value_from_sql(s: String, col: usize) -> rusqlite::Result<JsonVal> {
-    serde_json::from_str(s.as_str()).map_err(|e| {
-        rusqlite::Error::FromSqlConversionFailure(col, rusqlite::types::Type::Text, Box::new(e))
-    })
-}
 
 #[derive(PartialEq, Debug, Clone, Copy, Default)]
 pub enum CoverageType {
@@ -72,28 +67,6 @@ pub enum CoverageType {
     Line = 1,
     Branch,
     Method,
-}
-
-impl ToSql for CoverageType {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        match self {
-            CoverageType::Line => Ok("l".into()),
-            CoverageType::Branch => Ok("b".into()),
-            CoverageType::Method => Ok("m".into()),
-        }
-    }
-}
-
-impl FromSql for CoverageType {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        let variant = match value.as_str()? {
-            "l" => CoverageType::Line,
-            "b" => CoverageType::Branch,
-            "m" => CoverageType::Method,
-            _ => panic!("Uh oh"),
-        };
-        Ok(variant)
-    }
 }
 
 #[derive(PartialEq, Debug, Clone, Copy, Default)]
@@ -114,28 +87,6 @@ pub enum BranchFormat {
     BlockAndBranch,
 }
 
-impl ToSql for BranchFormat {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        match self {
-            BranchFormat::Line => Ok("l".into()),
-            BranchFormat::Condition => Ok("c".into()),
-            BranchFormat::BlockAndBranch => Ok("bb".into()),
-        }
-    }
-}
-
-impl FromSql for BranchFormat {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        let variant = match value.as_str()? {
-            "l" => BranchFormat::Line,
-            "c" => BranchFormat::Condition,
-            "bb" => BranchFormat::BlockAndBranch,
-            _ => panic!("Uh oh"),
-        };
-        Ok(variant)
-    }
-}
-
 #[derive(EnumString, Display, Debug, PartialEq, Clone, Copy, Default)]
 pub enum ContextType {
     /// A [`Context`] with this type represents a test case, and every
@@ -150,37 +101,15 @@ pub enum ContextType {
     Upload,
 }
 
-impl ToSql for ContextType {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        Ok(self.to_string().into())
-    }
-}
-
-impl FromSql for ContextType {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        value
-            .as_str()?
-            .parse()
-            .map_err(|e| FromSqlError::Other(Box::new(e)))
-    }
-}
-
+/// Each source file represented in the coverage data should have a
+/// [`SourceFile`] record with its path relative to the project's root.
 #[derive(PartialEq, Debug, Default)]
 pub struct SourceFile {
-    /// Should be a hash of the path
+    /// Should be a hash of the path.
     pub id: i64,
+
+    /// Should be relative to the project's root.
     pub path: String,
-}
-
-impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for SourceFile {
-    type Error = rusqlite::Error;
-
-    fn try_from(row: &'a ::rusqlite::Row) -> Result<Self, Self::Error> {
-        Ok(Self {
-            id: row.get(row.as_ref().column_index("id")?)?,
-            path: row.get(row.as_ref().column_index("path")?)?,
-        })
-    }
 }
 
 /// Each line in a source file should have a [`CoverageSample`] record when
@@ -206,8 +135,12 @@ impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for SourceFile {
 #[derive(PartialEq, Debug, Clone, Default)]
 pub struct CoverageSample {
     pub id: Uuid,
+
+    /// Should be a hash of the file's path relative to the project's root.
     pub source_file_id: i64,
+
     pub line_no: i64,
+
     pub coverage_type: CoverageType,
 
     /// The number of times the line was run.
@@ -223,27 +156,13 @@ pub struct CoverageSample {
     pub total_branches: Option<i64>,
 }
 
-impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for CoverageSample {
-    type Error = rusqlite::Error;
-
-    fn try_from(row: &'a ::rusqlite::Row) -> Result<Self, Self::Error> {
-        Ok(Self {
-            id: row.get(row.as_ref().column_index("id")?)?,
-            source_file_id: row.get(row.as_ref().column_index("source_file_id")?)?,
-            line_no: row.get(row.as_ref().column_index("line_no")?)?,
-            coverage_type: row.get(row.as_ref().column_index("coverage_type")?)?,
-            hits: row.get(row.as_ref().column_index("hits")?)?,
-            hit_branches: row.get(row.as_ref().column_index("hit_branches")?)?,
-            total_branches: row.get(row.as_ref().column_index("total_branches")?)?,
-        })
-    }
-}
-
 /// If raw coverage data includes information about which specific branches
 /// stemming from some line were or weren't covered, it can be stored here.
 #[derive(PartialEq, Debug, Default, Clone)]
 pub struct BranchesData {
     pub id: Uuid,
+
+    /// Should be a hash of the file's path relative to the project's root.
     pub source_file_id: i64,
 
     /// The [`CoverageSample`] record for the line this branch stems from.
@@ -253,26 +172,12 @@ pub struct BranchesData {
     pub hits: i64,
 
     /// The "shape" of the branch identifier saved in the `branch` field.
+    /// See [`BranchFormat`].
     pub branch_format: BranchFormat,
 
     /// An identifier of some kind (see `branch_format`) distinguishing this
     /// branch from others that stem from the same line.
     pub branch: String,
-}
-
-impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for BranchesData {
-    type Error = rusqlite::Error;
-
-    fn try_from(row: &'a ::rusqlite::Row) -> Result<Self, Self::Error> {
-        Ok(Self {
-            id: row.get(row.as_ref().column_index("id")?)?,
-            source_file_id: row.get(row.as_ref().column_index("source_file_id")?)?,
-            sample_id: row.get(row.as_ref().column_index("sample_id")?)?,
-            hits: row.get(row.as_ref().column_index("hits")?)?,
-            branch_format: row.get(row.as_ref().column_index("branch_format")?)?,
-            branch: row.get(row.as_ref().column_index("branch")?)?,
-        })
-    }
 }
 
 /// If raw coverage data includes additional metrics for methods (cyclomatic
@@ -281,6 +186,8 @@ impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for BranchesData {
 #[derive(PartialEq, Debug, Default, Clone)]
 pub struct MethodData {
     pub id: Uuid,
+
+    /// Should be a hash of the file's path relative to the project's root.
     pub source_file_id: i64,
 
     /// The [`CoverageSample`] record for the line this method was declared on,
@@ -306,23 +213,6 @@ pub struct MethodData {
     pub total_complexity: Option<i64>,
 }
 
-impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for MethodData {
-    type Error = rusqlite::Error;
-
-    fn try_from(row: &'a ::rusqlite::Row) -> Result<Self, Self::Error> {
-        Ok(Self {
-            id: row.get(row.as_ref().column_index("id")?)?,
-            source_file_id: row.get(row.as_ref().column_index("source_file_id")?)?,
-            sample_id: row.get(row.as_ref().column_index("sample_id")?)?,
-            line_no: row.get(row.as_ref().column_index("line_no")?)?,
-            hit_branches: row.get(row.as_ref().column_index("hit_branches")?)?,
-            total_branches: row.get(row.as_ref().column_index("total_branches")?)?,
-            hit_complexity_paths: row.get(row.as_ref().column_index("hit_complexity_paths")?)?,
-            total_complexity: row.get(row.as_ref().column_index("total_complexity")?)?,
-        })
-    }
-}
-
 /// If raw coverage data presents coverage information in terms of `(start_line,
 /// end_line)` or `((start_line, start_col), (end_line, end_col))` coordinates,
 /// it can be stored here.
@@ -340,6 +230,8 @@ impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for MethodData {
 #[derive(PartialEq, Debug, Default, Clone)]
 pub struct SpanData {
     pub id: Uuid,
+
+    /// Should be a hash of the file's path relative to the project's root.
     pub source_file_id: i64,
 
     /// A [`CoverageSample`] that is tied to this span, if there is a singular
@@ -363,26 +255,10 @@ pub struct SpanData {
     pub end_col: Option<i64>,
 }
 
-impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for SpanData {
-    type Error = rusqlite::Error;
-
-    fn try_from(row: &'a ::rusqlite::Row) -> Result<Self, Self::Error> {
-        Ok(Self {
-            id: row.get(row.as_ref().column_index("id")?)?,
-            source_file_id: row.get(row.as_ref().column_index("source_file_id")?)?,
-            sample_id: row.get(row.as_ref().column_index("sample_id")?)?,
-            hits: row.get(row.as_ref().column_index("hits")?)?,
-            start_line: row.get(row.as_ref().column_index("start_line")?)?,
-            start_col: row.get(row.as_ref().column_index("start_col")?)?,
-            end_line: row.get(row.as_ref().column_index("end_line")?)?,
-            end_col: row.get(row.as_ref().column_index("end_col")?)?,
-        })
-    }
-}
-
 /// Ties a [`Context`] to specific measurement data.
 #[derive(PartialEq, Debug, Default, Clone)]
 pub struct ContextAssoc {
+    /// Should be a hash of the context's `name` field.
     pub context_id: i64,
     pub sample_id: Option<Uuid>,
     pub branch_id: Option<Uuid>,
@@ -390,25 +266,11 @@ pub struct ContextAssoc {
     pub span_id: Option<Uuid>,
 }
 
-impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for ContextAssoc {
-    type Error = rusqlite::Error;
-
-    fn try_from(row: &'a ::rusqlite::Row) -> Result<Self, Self::Error> {
-        Ok(Self {
-            context_id: row.get(row.as_ref().column_index("context_id")?)?,
-            sample_id: row.get(row.as_ref().column_index("sample_id")?)?,
-            branch_id: row.get(row.as_ref().column_index("branch_id")?)?,
-            method_id: row.get(row.as_ref().column_index("method_id")?)?,
-            span_id: row.get(row.as_ref().column_index("span_id")?)?,
-        })
-    }
-}
-
 /// Context that can be associated with measurements to allow querying/filtering
 /// based on test cases, platforms, or other dimensions.
 #[derive(PartialEq, Debug, Default, Clone)]
 pub struct Context {
-    /// Should be a hash of the name
+    /// Should be a hash of the context's `name` field.
     pub id: i64,
     pub context_type: ContextType,
 
@@ -417,66 +279,133 @@ pub struct Context {
     pub name: String,
 }
 
-impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for Context {
-    type Error = rusqlite::Error;
-
-    fn try_from(row: &'a ::rusqlite::Row) -> Result<Self, Self::Error> {
-        Ok(Self {
-            id: row.get(row.as_ref().column_index("id")?)?,
-            context_type: row.get(row.as_ref().column_index("context_type")?)?,
-            name: row.get(row.as_ref().column_index("name")?)?,
-        })
-    }
-}
-
+/// Details about an upload of coverage data including its flags, the path it
+/// was uploaded to, the CI job that uploaded it, or a link to the results of
+/// that CI job.
 #[derive(PartialEq, Debug, Default, Clone)]
 pub struct UploadDetails {
+    /// Should be a hash of the context's `name` field.
     pub context_id: i64,
+
+    /// Unix timestamp in seconds.
+    ///
+    /// Key in the report JSON: `"d"`
+    ///
+    /// Ex: `1704827412`
     pub timestamp: Option<i64>,
+
+    /// URI for an upload in Codecov's archive storage
+    ///
+    /// Key in the report JSON: `"a"`
+    ///
+    /// Ex: `"v4/raw/2024-01-09/<cut>/<cut>/<cut>/
+    /// 340c0c0b-a955-46a0-9de9-3a9b5f2e81e2.txt"`
     pub raw_upload_url: Option<String>,
-    /// JSON array
+
+    /// JSON array of strings containing the flags associated with an upload.
+    ///
+    /// Key in the report JSON: `"f"`
+    ///
+    /// Ex: `["unit"]`
+    /// Ex: `["integration", "windows"]`
     pub flags: Option<JsonVal>,
+
+    /// Key in the report JSON: `"c"`
     pub provider: Option<String>,
+
+    /// Key in the report JSON: `"n"`
     pub build: Option<String>,
+
+    /// Name of the upload that would be displayed in Codecov's UI. Often null.
+    ///
+    /// Key in the report JSON: `"N"`
+    ///
+    /// Ex: `"CF[326] - Carriedforward"`
     pub name: Option<String>,
+
+    /// Name of the CI job that uploaded the data.
+    ///
+    /// Key in the report JSON: `"j"`
+    ///
+    /// Ex: `"codecov-rs CI"`
     pub job_name: Option<String>,
+
+    /// URL of the specific CI job instance that uploaded the data.
+    ///
+    /// Key in the report JSON: `"u"`
+    ///
+    /// Ex: `"https://github.com/codecov/codecov-rs/actions/runs/7465738121"`
     pub ci_run_url: Option<String>,
+
+    /// Key in the report JSON: `"p"`
     pub state: Option<String>,
+
+    /// Key in the report JSON: `"e"`
     pub env: Option<String>,
+
+    /// Whether the upload was an original upload or carried forward from an old
+    /// commit. Ex: `"uploaded"`
+    ///
+    /// Key in the report JSON: `"st"`
+    ///
+    /// Ex: `"carriedforward"`
     pub session_type: Option<String>,
+
+    /// JSON object with extra details related to the upload. For instance, if
+    /// the upload is "carried-forward" from a previous commit, the base
+    /// commit is included here.
+    ///
+    /// Key in the report JSON: `"se"`
+    ///
+    /// Ex: `{"carriedforward_from":
+    /// "bcec3478e2a27bb7950f40388cf191834fb2d5a3"}`
     pub session_extras: Option<JsonVal>,
 }
 
-impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for UploadDetails {
-    type Error = rusqlite::Error;
+/// Aggregated coverage metrics for lines, branches, and sessions in a report
+/// (or filtered subset).
+#[derive(PartialEq, Debug)]
+pub struct CoverageTotals {
+    /// The number of lines that were hit in this report/subset.
+    pub hit_lines: u64,
 
-    fn try_from(row: &'a ::rusqlite::Row) -> Result<Self, Self::Error> {
-        let flags_index = row.as_ref().column_index("flags")?;
-        let flags = if let Some(flags) = row.get(flags_index)? {
-            Some(json_value_from_sql(flags, flags_index)?)
-        } else {
-            None
-        };
-        let session_extras_index = row.as_ref().column_index("session_extras")?;
-        let session_extras = if let Some(session_extras) = row.get(session_extras_index)? {
-            Some(json_value_from_sql(session_extras, session_extras_index)?)
-        } else {
-            None
-        };
-        Ok(Self {
-            context_id: row.get(row.as_ref().column_index("context_id")?)?,
-            timestamp: row.get(row.as_ref().column_index("timestamp")?)?,
-            raw_upload_url: row.get(row.as_ref().column_index("raw_upload_url")?)?,
-            flags,
-            provider: row.get(row.as_ref().column_index("provider")?)?,
-            build: row.get(row.as_ref().column_index("build")?)?,
-            name: row.get(row.as_ref().column_index("name")?)?,
-            job_name: row.get(row.as_ref().column_index("job_name")?)?,
-            ci_run_url: row.get(row.as_ref().column_index("ci_run_url")?)?,
-            state: row.get(row.as_ref().column_index("state")?)?,
-            env: row.get(row.as_ref().column_index("env")?)?,
-            session_type: row.get(row.as_ref().column_index("session_type")?)?,
-            session_extras,
-        })
-    }
+    /// The total number of lines tracked in this report/subset.
+    pub total_lines: u64,
+
+    /// The number of branch paths that were hit in this report/subset.
+    pub hit_branches: u64,
+
+    /// The number of possible branch paths tracked in this report/subset.
+    pub total_branches: u64,
+
+    /// The number of branch roots tracked in this report/subset.
+    pub total_branch_roots: u64,
+
+    /// The number of methods that were hit in this report/subset.
+    pub hit_methods: u64,
+
+    /// The number of methods tracked in this report/subset.
+    pub total_methods: u64,
+
+    /// The number of possible cyclomathic paths hit in this report/subset.
+    pub hit_complexity_paths: u64,
+
+    /// The total cyclomatic complexity of code tracked in this report/subset.
+    pub total_complexity: u64,
+}
+
+/// Aggregated metrics for a report or filtered subset.
+#[derive(PartialEq, Debug)]
+pub struct ReportTotals {
+    /// Number of files with data in this aggregation.
+    pub files: u64,
+
+    /// Number of uploads with data in this aggregation.
+    pub uploads: u64,
+
+    /// Number of test cases with data in this aggregation.
+    pub test_cases: u64,
+
+    /// Aggregated coverage data.
+    pub coverage: CoverageTotals,
 }

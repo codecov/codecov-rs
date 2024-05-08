@@ -5,7 +5,7 @@ use serde_json::{json, json_internal};
 use crate::{
     error::{CodecovError, Result},
     parsers::json::JsonVal,
-    report::{models, models::json_value_from_sql, SqliteReport},
+    report::{models, sqlite::json_value_from_sql, SqliteReport},
 };
 
 fn calculate_coverage_pct(hits: i64, lines: i64) -> String {
