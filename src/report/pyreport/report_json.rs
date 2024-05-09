@@ -259,3 +259,549 @@ pub fn sql_to_report_json(report: &SqliteReport, output_file: &mut File) -> Resu
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{io::Seek, path::PathBuf};
+
+    use serde_json::{json, json_internal};
+    use tempfile::TempDir;
+
+    use super::*;
+    use crate::report::{sqlite::SqliteReportBuilder, ReportBuilder};
+
+    struct Ctx {
+        temp_dir: TempDir,
+    }
+
+    fn setup() -> Ctx {
+        Ctx {
+            temp_dir: TempDir::new().ok().unwrap(),
+        }
+    }
+
+    fn build_sample_report(path: PathBuf) -> Result<SqliteReport> {
+        let mut builder = SqliteReportBuilder::new(path)?;
+        let file_1 = builder.insert_file("src/report/report.rs".to_string())?;
+        let file_2 = builder.insert_file("src/report/models.rs".to_string())?;
+
+        let line_1 = builder.insert_coverage_sample(models::CoverageSample {
+            source_file_id: file_1.id,
+            line_no: 1,
+            coverage_type: models::CoverageType::Line,
+            hits: Some(3),
+            ..Default::default()
+        })?;
+        let line_2 = builder.insert_coverage_sample(models::CoverageSample {
+            source_file_id: file_2.id,
+            line_no: 1,
+            coverage_type: models::CoverageType::Line,
+            hits: Some(4),
+            ..Default::default()
+        })?;
+        let line_3 = builder.insert_coverage_sample(models::CoverageSample {
+            source_file_id: file_2.id,
+            line_no: 3,
+            coverage_type: models::CoverageType::Line,
+            hits: Some(0),
+            ..Default::default()
+        })?;
+
+        let branch_sample_1 = builder.insert_coverage_sample(models::CoverageSample {
+            source_file_id: file_1.id,
+            line_no: 3,
+            coverage_type: models::CoverageType::Branch,
+            hit_branches: Some(2),
+            total_branches: Some(2),
+            ..Default::default()
+        })?;
+        let _ = builder.insert_branches_data(models::BranchesData {
+            source_file_id: branch_sample_1.source_file_id,
+            sample_id: branch_sample_1.id,
+            hits: 1,
+            branch_format: models::BranchFormat::Condition,
+            branch: "0:jump".to_string(),
+            ..Default::default()
+        })?;
+        let _ = builder.insert_branches_data(models::BranchesData {
+            source_file_id: branch_sample_1.source_file_id,
+            sample_id: branch_sample_1.id,
+            hits: 1,
+            branch_format: models::BranchFormat::Condition,
+            branch: "1".to_string(),
+            ..Default::default()
+        })?;
+
+        let branch_sample_2 = builder.insert_coverage_sample(models::CoverageSample {
+            source_file_id: file_2.id,
+            line_no: 6,
+            coverage_type: models::CoverageType::Branch,
+            hit_branches: Some(2),
+            total_branches: Some(4),
+            ..Default::default()
+        })?;
+        let _ = builder.insert_branches_data(models::BranchesData {
+            source_file_id: branch_sample_2.source_file_id,
+            sample_id: branch_sample_2.id,
+            hits: 1,
+            branch_format: models::BranchFormat::Condition,
+            branch: "0:jump".to_string(),
+            ..Default::default()
+        })?;
+        let _ = builder.insert_branches_data(models::BranchesData {
+            source_file_id: branch_sample_2.source_file_id,
+            sample_id: branch_sample_2.id,
+            hits: 1,
+            branch_format: models::BranchFormat::Condition,
+            branch: "1".to_string(),
+            ..Default::default()
+        })?;
+        let _ = builder.insert_branches_data(models::BranchesData {
+            source_file_id: branch_sample_2.source_file_id,
+            sample_id: branch_sample_2.id,
+            hits: 0,
+            branch_format: models::BranchFormat::Condition,
+            branch: "2".to_string(),
+            ..Default::default()
+        })?;
+        let _ = builder.insert_branches_data(models::BranchesData {
+            source_file_id: branch_sample_2.source_file_id,
+            sample_id: branch_sample_2.id,
+            hits: 0,
+            branch_format: models::BranchFormat::Condition,
+            branch: "3".to_string(),
+            ..Default::default()
+        })?;
+
+        let method_sample_1 = builder.insert_coverage_sample(models::CoverageSample {
+            source_file_id: file_1.id,
+            line_no: 2,
+            coverage_type: models::CoverageType::Method,
+            hits: Some(2),
+            ..Default::default()
+        })?;
+        let _ = builder.insert_method_data(models::MethodData {
+            source_file_id: method_sample_1.source_file_id,
+            sample_id: Some(method_sample_1.id),
+            line_no: Some(method_sample_1.line_no),
+            hit_branches: Some(2),
+            total_branches: Some(4),
+            hit_complexity_paths: Some(2),
+            total_complexity: Some(4),
+            ..Default::default()
+        })?;
+
+        let method_sample_2 = builder.insert_coverage_sample(models::CoverageSample {
+            source_file_id: file_2.id,
+            line_no: 2,
+            coverage_type: models::CoverageType::Method,
+            hits: Some(5),
+            ..Default::default()
+        })?;
+        let _ = builder.insert_method_data(models::MethodData {
+            source_file_id: method_sample_2.source_file_id,
+            sample_id: Some(method_sample_2.id),
+            line_no: Some(method_sample_2.line_no),
+            hit_branches: Some(2),
+            total_branches: Some(4),
+            ..Default::default()
+        })?;
+
+        let method_sample_3 = builder.insert_coverage_sample(models::CoverageSample {
+            source_file_id: file_2.id,
+            line_no: 5,
+            coverage_type: models::CoverageType::Method,
+            hits: Some(0),
+            ..Default::default()
+        })?;
+        let _ = builder.insert_method_data(models::MethodData {
+            source_file_id: method_sample_3.source_file_id,
+            sample_id: Some(method_sample_3.id),
+            line_no: Some(method_sample_3.line_no),
+            hit_complexity_paths: Some(2),
+            total_complexity: Some(4),
+            ..Default::default()
+        })?;
+
+        let line_with_partial_1 = builder.insert_coverage_sample(models::CoverageSample {
+            source_file_id: file_1.id,
+            line_no: 8,
+            coverage_type: models::CoverageType::Line,
+            hits: Some(3),
+            ..Default::default()
+        })?;
+        let _ = builder.insert_span_data(models::SpanData {
+            source_file_id: line_with_partial_1.source_file_id,
+            sample_id: Some(line_with_partial_1.id),
+            start_line: Some(line_with_partial_1.line_no),
+            start_col: Some(3),
+            end_line: Some(line_with_partial_1.line_no),
+            end_col: None,
+            hits: 3,
+            ..Default::default()
+        })?;
+
+        let upload_1 = builder.insert_context(models::ContextType::Upload, "codecov-rs CI")?;
+        let _ = builder.associate_context(models::ContextAssoc {
+            context_id: upload_1.id,
+            sample_id: Some(line_1.id),
+            ..Default::default()
+        })?;
+        let _ = builder.associate_context(models::ContextAssoc {
+            context_id: upload_1.id,
+            sample_id: Some(line_2.id),
+            ..Default::default()
+        })?;
+        let _ = builder.associate_context(models::ContextAssoc {
+            context_id: upload_1.id,
+            sample_id: Some(branch_sample_1.id),
+            ..Default::default()
+        })?;
+        let _ = builder.associate_context(models::ContextAssoc {
+            context_id: upload_1.id,
+            sample_id: Some(branch_sample_2.id),
+            ..Default::default()
+        })?;
+        let _ = builder.associate_context(models::ContextAssoc {
+            context_id: upload_1.id,
+            sample_id: Some(method_sample_1.id),
+            ..Default::default()
+        })?;
+        let _ = builder.associate_context(models::ContextAssoc {
+            context_id: upload_1.id,
+            sample_id: Some(method_sample_2.id),
+            ..Default::default()
+        })?;
+        let _ = builder.associate_context(models::ContextAssoc {
+            context_id: upload_1.id,
+            sample_id: Some(line_with_partial_1.id),
+            ..Default::default()
+        })?;
+
+        let upload_2 = builder.insert_context(models::ContextType::Upload, "codecov-rs CI 2")?;
+        let _ = builder.associate_context(models::ContextAssoc {
+            context_id: upload_2.id,
+            sample_id: Some(line_3.id),
+            ..Default::default()
+        })?;
+        let _ = builder.associate_context(models::ContextAssoc {
+            context_id: upload_2.id,
+            sample_id: Some(method_sample_3.id),
+            ..Default::default()
+        })?;
+
+        let label_1 = builder.insert_context(models::ContextType::TestCase, "test-case")?;
+        let _ = builder.associate_context(models::ContextAssoc {
+            context_id: label_1.id,
+            sample_id: Some(line_1.id),
+            ..Default::default()
+        })?;
+        let _ = builder.associate_context(models::ContextAssoc {
+            context_id: label_1.id,
+            sample_id: Some(line_2.id),
+            ..Default::default()
+        })?;
+
+        let _ = builder.insert_upload_details(models::UploadDetails {
+            context_id: upload_1.id,
+            timestamp: Some(123),
+            raw_upload_url: Some("upload 1 url".to_string()),
+            flags: Some(json!(["flag on upload 1"])),
+            provider: Some("provider upload 1".to_string()),
+            build: Some("build upload 1".to_string()),
+            name: Some("name upload 1".to_string()),
+            job_name: Some("job name upload 1".to_string()),
+            ci_run_url: Some("ci run url upload 1".to_string()),
+            state: Some("state upload 1".to_string()),
+            env: Some("env upload 1".to_string()),
+            session_type: Some("type upload 1".to_string()),
+            session_extras: Some(json!({"k1": "v1"})),
+            ..Default::default()
+        })?;
+        let _ = builder.insert_upload_details(models::UploadDetails {
+            context_id: upload_2.id,
+            timestamp: Some(456),
+            raw_upload_url: Some("upload 2 url".to_string()),
+            flags: Some(json!(["flag on upload 2"])),
+            provider: Some("provider upload 2".to_string()),
+            build: Some("build upload 2".to_string()),
+            name: Some("name upload 2".to_string()),
+            job_name: Some("job name upload 2".to_string()),
+            ci_run_url: Some("ci run url upload 2".to_string()),
+            state: Some("state upload 2".to_string()),
+            env: Some("env upload 2".to_string()),
+            session_type: Some("type upload 2".to_string()),
+            session_extras: Some(json!({"k2": "v2"})),
+            ..Default::default()
+        })?;
+
+        Ok(builder.build())
+    }
+
+    #[test]
+    fn test_calculate_coverage_pct() {
+        assert_eq!(calculate_coverage_pct(0, 16), "0".to_string());
+        assert_eq!(calculate_coverage_pct(4, 16), "25.00000".to_string());
+        assert_eq!(calculate_coverage_pct(16, 16), "100".to_string());
+        assert_eq!(calculate_coverage_pct(1, 3), "33.33333".to_string());
+        assert_eq!(calculate_coverage_pct(1, 8), "12.50000".to_string());
+
+        // Should not occur in normal usage, just documenting the behavior
+        assert_eq!(calculate_coverage_pct(-1, 8), "-12.50000".to_string());
+        assert_eq!(calculate_coverage_pct(9, 8), "112.50000".to_string());
+    }
+
+    #[test]
+    fn test_sql_to_files_dict() {
+        let ctx = setup();
+        let report = build_sample_report(ctx.temp_dir.path().join("db.sqlite")).unwrap();
+        let report_json_path = ctx.temp_dir.path().join("report_json.json");
+        let mut report_json_file = File::options()
+            .create(true)
+            .truncate(true)
+            .read(true)
+            .write(true)
+            .open(&report_json_path)
+            .unwrap();
+
+        let _ = report_json_file.write("{".as_bytes()).unwrap();
+        sql_to_files_dict(&report, &mut report_json_file).unwrap();
+        let _ = report_json_file.write("}".as_bytes()).unwrap();
+
+        let _ = report_json_file.rewind().unwrap();
+        let files_dict: JsonVal = serde_json::from_reader(&report_json_file).unwrap();
+
+        let expected = json!({
+            "files": {
+                "src/report/models.rs": [
+                    0,
+                    [
+                        0,          // file count
+                        5,          // line count
+                        2,          // hits
+                        2,          // misses
+                        1,          // partials
+                        "40.00000", // coverage %
+                        1,          // branch count
+                        2,          // method count
+                        0,          // messages
+                        0,          // session count
+                        2,          // hit complexity paths
+                        4,          // total complexity
+                        0           // diff
+                    ],
+                    {
+                        "0": [
+                            0,      // file count
+                            2,      // line count
+                            0,      // hits
+                            2,      // misses
+                            0,      // partials
+                            "0"     // coverage %
+                        ],
+                        "1": [
+                            0,      // file count
+                            3,      // lines
+                            2,      // hits
+                            0,      // misses
+                            1,      // partials
+                            "66.66667" // coverage %
+                        ],
+                        "meta": {"session_count": 2},
+                    },
+                    null
+                ],
+                "src/report/report.rs": [
+                    1,
+                    [
+                        0,      // file count
+                        4,      // line count
+                        4,      // hits
+                        0,      // misses
+                        0,      // partials
+                        "100",  // coverage %
+                        1,      // branch count
+                        1,      // method count
+                        0,      // messages
+                        0,      // sessions
+                        2,      // hit complexity paths
+                        4,      // total complexity
+                        0       // diff
+                    ],
+                    {
+                        "1": [0, 4, 4, 0, 0, "100"],
+                        "meta": {"session_count": 1}
+                    },
+                    null
+                ],
+            }
+        });
+
+        assert_eq!(files_dict, expected,);
+    }
+
+    #[test]
+    fn test_sql_to_sessions_dict() {
+        let ctx = setup();
+        let report = build_sample_report(ctx.temp_dir.path().join("db.sqlite")).unwrap();
+        let report_json_path = ctx.temp_dir.path().join("report_json.json");
+        let mut report_json_file = File::options()
+            .create(true)
+            .truncate(true)
+            .read(true)
+            .write(true)
+            .open(&report_json_path)
+            .unwrap();
+
+        let _ = report_json_file.write("{".as_bytes()).unwrap();
+        sql_to_sessions_dict(&report, &mut report_json_file).unwrap();
+        let _ = report_json_file.write("}".as_bytes()).unwrap();
+
+        let _ = report_json_file.rewind().unwrap();
+        let sessions_dict: JsonVal = serde_json::from_reader(&report_json_file).unwrap();
+
+        let expected = json!({
+            "sessions": {
+                "0": {
+                    "t": [
+                        1,      // file count
+                        2,      // line count
+                        0,      // hits
+                        2,      // misses
+                        0,      // partials
+                        "0",    // coverage %
+                        0,      // branch count
+                        1,      // method count
+                        0,      // messages
+                        0,      // sessions
+                        2,      // hit_complexity_paths
+                        4,      // total_complexity
+                        0       // diff
+                    ],
+                    "d": 456,
+                    "a": "upload 2 url",
+                    "f": ["flag on upload 2"],
+                    "c": "provider upload 2",
+                    "n": "build upload 2",
+                    "N": "name upload 2",
+                    "j": "job name upload 2",
+                    "u": "ci run url upload 2",
+                    "p": "state upload 2",
+                    "e": "env upload 2",
+                    "st": "type upload 2",
+                    "se": {"k2": "v2"},
+                },
+                "1": {
+                    "t": [
+                        2,              // file count
+                        7,              // line count
+                        6,              // hits
+                        0,              // misses
+                        1,              // partials
+                        "85.71429",     // coverage %
+                        2,              // branch count
+                        2,              // method count
+                        0,              // messages
+                        0,              // sessions
+                        2,              // hit_complexity_paths
+                        4,              // total_complexity
+                        0               // diff
+                    ],
+                    "d": 123,
+                    "a": "upload 1 url",
+                    "f": ["flag on upload 1"],
+                    "c": "provider upload 1",
+                    "n": "build upload 1",
+                    "N": "name upload 1",
+                    "j": "job name upload 1",
+                    "u": "ci run url upload 1",
+                    "p": "state upload 1",
+                    "e": "env upload 1",
+                    "st": "type upload 1",
+                    "se": {"k1": "v1"},
+                }
+            }
+        });
+
+        assert_eq!(sessions_dict, expected);
+    }
+
+    #[test]
+    fn test_sql_to_report_json() {
+        let ctx = setup();
+        let report = build_sample_report(ctx.temp_dir.path().join("db.sqlite")).unwrap();
+        let report_json_path = ctx.temp_dir.path().join("report_json.json");
+        let mut report_json_file = File::options()
+            .create(true)
+            .truncate(true)
+            .read(true)
+            .write(true)
+            .open(&report_json_path)
+            .unwrap();
+
+        sql_to_report_json(&report, &mut report_json_file).unwrap();
+
+        let _ = report_json_file.rewind().unwrap();
+        let report_json: JsonVal = serde_json::from_reader(&report_json_file).unwrap();
+
+        // All of the totals are the same as in previous test cases so they have been
+        // collapsed/uncommented for brevity
+        let expected = json!({
+            "files": {
+                "src/report/models.rs": [
+                    0,
+                    [0, 5, 2, 2, 1, "40.00000", 1, 2, 0, 0, 2, 4, 0],
+                    {
+                        "0": [0, 2, 0, 2, 0, "0"],
+                        "1": [0, 3, 2, 0, 1, "66.66667"],
+                        "meta": {"session_count": 2},
+                    },
+                    null
+                ],
+                "src/report/report.rs": [
+                    1,
+                    [0, 4, 4, 0, 0, "100", 1, 1, 0, 0, 2, 4, 0],
+                    {
+                        "1": [0, 4, 4, 0, 0, "100"],
+                        "meta": {"session_count": 1}
+                    },
+                    null
+                ],
+            },
+            "sessions": {
+                "0": {
+                    "t": [1, 2, 0, 2, 0, "0", 0, 1, 0, 0, 2, 4, 0],
+                    "d": 456,
+                    "a": "upload 2 url",
+                    "f": ["flag on upload 2"],
+                    "c": "provider upload 2",
+                    "n": "build upload 2",
+                    "N": "name upload 2",
+                    "j": "job name upload 2",
+                    "u": "ci run url upload 2",
+                    "p": "state upload 2",
+                    "e": "env upload 2",
+                    "st": "type upload 2",
+                    "se": {"k2": "v2"},
+                },
+                "1": {
+                    "t": [2, 7, 6, 0, 1, "85.71429", 2, 2, 0, 0, 2, 4, 0],
+                    "d": 123,
+                    "a": "upload 1 url",
+                    "f": ["flag on upload 1"],
+                    "c": "provider upload 1",
+                    "n": "build upload 1",
+                    "N": "name upload 1",
+                    "j": "job name upload 1",
+                    "u": "ci run url upload 1",
+                    "p": "state upload 1",
+                    "e": "env upload 1",
+                    "st": "type upload 1",
+                    "se": {"k1": "v1"},
+                }
+            }
+        });
+
+        assert_eq!(report_json, expected);
+    }
+}

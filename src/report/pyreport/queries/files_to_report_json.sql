@@ -18,6 +18,14 @@ left join
 on
   method_data.sample_id = coverage_sample.id
 ),
+source_files_with_index as (
+select
+  row_number() over (order by source_file.id) - 1 as chunk_index,
+  source_file.id,
+  source_file.path
+from
+  source_file
+),
 file_sessions_flattened as (
 select
   samples_categorized.source_file_id,
@@ -89,9 +97,9 @@ group by
   1, 2, 3
 )
 select
-  row_number() over (order by source_file.id) - 1 as chunk_index,
-  source_file.id,
-  source_file.path,
+  source_files_with_index.chunk_index,
+  source_files_with_index.id,
+  source_files_with_index.path,
   file_totals.file_lines,
   file_totals.file_hits,
   file_totals.file_misses,
@@ -108,13 +116,13 @@ select
   file_session_totals.file_session_hit_complexity_paths,
   file_session_totals.file_session_total_complexity
 from
-  source_file
+  source_files_with_index
 left join
   file_totals
 on
-  source_file.id = file_totals.source_file_id
+  source_files_with_index.id = file_totals.source_file_id
 left join
   file_session_totals
 on
-  source_file.id = file_session_totals.source_file_id;
+  source_files_with_index.id = file_session_totals.source_file_id;
 
