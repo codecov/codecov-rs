@@ -8,6 +8,8 @@ use crate::{
     report::{models, sqlite::json_value_from_sql, SqliteReport},
 };
 
+/// Coverage percentages are written with 5 decimal places of precision unless
+/// they are 0 or 100.
 fn calculate_coverage_pct(hits: i64, lines: i64) -> String {
     match (hits, lines) {
         (0, _) => 0.to_string(),
@@ -16,6 +18,23 @@ fn calculate_coverage_pct(hits: i64, lines: i64) -> String {
     }
 }
 
+/// Build the "files" object inside of a report JSON and write it to
+/// `output_file`. The caller is responsible for the enclosing `{}`s or
+/// succeeding comma; this function just writes the key/value pair like so:
+///
+/// ```notrust
+/// "files": {
+///     "src/report/report.rs": [
+///         ...
+///     ],
+///     "src/report/models.rs": [
+///         ...
+///     ]
+/// }
+/// ```
+///
+/// See [`crate::report::pyreport`] for more details about the content and
+/// structure of a report JSON.
 fn sql_to_files_dict(report: &SqliteReport, output_file: &mut File) -> Result<()> {
     let mut stmt = report
         .conn
@@ -35,6 +54,13 @@ fn sql_to_files_dict(report: &SqliteReport, output_file: &mut File) -> Result<()
         Ok(())
     }
 
+    /// The data for a single file is spread across multiple rows in the results
+    /// of `queries/files_to_report_json.sql`. However, every row contains a
+    /// copy of certain aggregate whole-file metrics. This helper function
+    /// is given the first row for each file and returns the JSON array that
+    /// will be written for that file, but only those whole-file metrics are
+    /// filled in. The rest of the array will be filled out by processing the
+    /// rest of the columns/rows returned for this file.
     fn build_file_from_row(row: &rusqlite::Row) -> Result<(String, JsonVal)> {
         let chunk_index = row.get::<usize, i64>(0)?;
         let new_path = row.get(2)?;
@@ -70,6 +96,12 @@ fn sql_to_files_dict(report: &SqliteReport, output_file: &mut File) -> Result<()
         ))
     }
 
+    /// Each file in the files section of a report JSON includes a breakdown of
+    /// aggregated coverage metrics _per session_. Each row in the results
+    /// of `queries/files_to_report_json.sql` contains those per-session
+    /// metrics and this helper function returns the key/value pair that
+    /// will be written for a session, where the key is the session's ID and the
+    /// value is an array of its metrics.
     fn build_session_totals_from_row(row: &rusqlite::Row) -> Result<(String, JsonVal)> {
         let session_id = row.get(11)?;
         let lines = row.get::<usize, i64>(12)?;
@@ -109,6 +141,11 @@ fn sql_to_files_dict(report: &SqliteReport, output_file: &mut File) -> Result<()
         } else {
             true
         };
+        // When we encounter the first row for a new file, we want to write out the
+        // current file and then start building the new one. The very first row
+        // will appear to be a new file, but it isn't really. This logic will
+        // effectively no-op `maybe_write_current_file()` and leave `first_file`
+        // as `false` in that case and then begin building the first file.
         if is_new_file {
             maybe_write_current_file(&current_file, output_file, first_file)?;
             first_file = current_file.is_none();
@@ -148,14 +185,35 @@ fn sql_to_files_dict(report: &SqliteReport, output_file: &mut File) -> Result<()
     Ok(())
 }
 
+/// Build the "sessions" object inside of a report JSON and write it to
+/// `output_file`. The caller is responsible for the enclosing `{}`s or
+/// succeeding comma; this function just writes the key/value pair like so:
+///
+/// ```notrust
+/// "sessions": {
+///     "0": {
+///         ...
+///     },
+///     "1": {
+///         ...
+///     }
+/// }
+/// ```
+///
+/// See [`crate::report::pyreport`] for more details about the content and
+/// structure of a report JSON.
 fn sql_to_sessions_dict(report: &SqliteReport, output_file: &mut File) -> Result<()> {
     let mut stmt = report
         .conn
         .prepare_cached(include_str!("queries/sessions_to_report_json.sql"))?;
     let mut rows = stmt.query([])?;
 
-    // Each row represents a session and this helper function returns the key/value
-    // pair that will be written into the sessions dict for that session.
+    /// Each row returned by `queries/sessions_to_report_json.sql` represents a
+    /// "session" in pyreport parlance, or a `models::Context` with a
+    /// `context_type` of `models::ContextType::Upload` in a `SQLiteReport`.
+    /// This helper function returns the key/value pair that will be written
+    /// into the sessions object for a row, where the key is the session ID
+    /// and the value is the data for that session.
     fn build_session_from_row(row: &rusqlite::Row) -> Result<(String, JsonVal)> {
         let session_id = row.get::<usize, String>(0)?;
         let file_count = row.get::<usize, i64>(2)?;
@@ -250,6 +308,9 @@ fn sql_to_sessions_dict(report: &SqliteReport, output_file: &mut File) -> Result
     Ok(())
 }
 
+/// Builds a report JSON from a [`SqliteReport`] and writes it to `output_file`.
+/// See [`crate::report::pyreport`] for more details about the content and
+/// structure of a report JSON.
 pub fn sql_to_report_json(report: &SqliteReport, output_file: &mut File) -> Result<()> {
     let _ = output_file.write("{".as_bytes())?;
     sql_to_files_dict(report, output_file)?;
