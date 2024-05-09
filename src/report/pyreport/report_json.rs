@@ -864,5 +864,23 @@ mod tests {
         });
 
         assert_eq!(report_json, expected);
+
+        let empty_report = SqliteReport::new(ctx.temp_dir.path().join("empty.db")).unwrap();
+        let report_json_path = ctx.temp_dir.path().join("report_json.json");
+        let mut report_json_file = File::options()
+            .create(true)
+            .truncate(true)
+            .read(true)
+            .write(true)
+            .open(&report_json_path)
+            .unwrap();
+
+        sql_to_report_json(&empty_report, &mut report_json_file).unwrap();
+
+        let _ = report_json_file.rewind().unwrap();
+        let report_json: JsonVal = serde_json::from_reader(&report_json_file).unwrap();
+
+        let expected = json!({"files": {}, "sessions": {}});
+        assert_eq!(report_json, expected);
     }
 }

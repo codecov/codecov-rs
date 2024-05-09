@@ -7,11 +7,24 @@ from
 where
   context.context_type = 'Upload'
 ),
+upload_assocs as (
+select
+  context_assoc.context_id,
+  context_assoc.sample_id
+from
+  context_assoc
+left join
+  context
+on
+  context_assoc.context_id = context.id
+where
+  context.context_type = 'Upload'
+),
 chunks_file_indices as (
 select
   row_number() over (order by source_file.id) - 1 as chunk_index,
   source_file.id as source_file_id,
-  json_group_array(distinct session_indices.session_index) as present_sessions
+  json_group_array(distinct session_indices.session_index order by session_indices.session_index asc) as present_sessions
 from
   source_file
 left join
@@ -19,13 +32,13 @@ left join
 on
   coverage_sample.source_file_id = source_file.id
 left join
-  context_assoc
+  upload_assocs
 on
-  context_assoc.sample_id = coverage_sample.id
+  upload_assocs.sample_id = coverage_sample.id
 left join
   session_indices
 on
-  context_assoc.context_id = session_indices.context_id
+  upload_assocs.context_id = session_indices.context_id
 group by
   2
 ),
@@ -34,6 +47,19 @@ select
   *
 from
   context
+where
+  context.context_type <> 'Upload'
+),
+other_assocs as (
+select
+  context_assoc.context_id,
+  context_assoc.sample_id
+from
+  context_assoc
+left join
+  context
+on
+  context_assoc.context_id = context.id
 where
   context.context_type <> 'Upload'
 ),
@@ -57,15 +83,15 @@ select
   coverage_sample.total_branches,
   method_data.hit_complexity_paths,
   method_data.total_complexity,
-  json_group_array(branches_data.branch) filter (where branches_data.branch is not null) as missing_branches,
-  json_group_array(formatted_span_data.pyreport_partial) filter (where formatted_span_data.pyreport_partial is not null) as partials,
+  json_group_array(branches_data.branch) filter (where branches_data.branch is not null and branches_data.hits = 0) as missing_branches,
+  json_group_array(json(formatted_span_data.pyreport_partial)) filter (where formatted_span_data.pyreport_partial is not null) as partials,
   json_group_array(other_contexts.name) filter (where other_contexts.name is not null) as labels
 from
   coverage_sample
 left join
-  context_assoc
+  upload_assocs
 on
-  context_assoc.sample_id = coverage_sample.id
+  upload_assocs.sample_id = coverage_sample.id
 left join
   branches_data
 on
@@ -85,12 +111,16 @@ on
 left join
   session_indices
 on
-  session_indices.context_id = context_assoc.context_id
+  session_indices.context_id = upload_assocs.context_id
+left join
+  other_assocs
+on
+  other_assocs.sample_id = coverage_sample.id
 left join
   other_contexts
 on
-  other_contexts.id = context_assoc.context_id
-group by 1, 2, 3
+  other_contexts.id = other_assocs.context_id
+group by 1, 2, 3, 4
 order by 1, 2, 3, other_contexts.name
 ),
 report_line_totals as (
@@ -124,7 +154,7 @@ select
   line_sessions.hit_complexity_paths,
   line_sessions.total_complexity,
   iif(line_sessions.missing_branches = json_array(), null, line_sessions.missing_branches) as missing_branches,
-  iif(line_sessions.partials = json_array(), null, line_sessions.partials) as partials,
+  iif(json(line_sessions.partials) = json_array(), null, json(line_sessions.partials)) as partials,
   iif(line_sessions.labels = json_array(), null, line_sessions.labels) as labels
 from
   line_sessions
