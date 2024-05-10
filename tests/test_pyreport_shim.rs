@@ -66,10 +66,11 @@ fn test_parse_report_json() {
         },
     ];
 
+    let expected_name = "[1704827412] codecov-rs CI: https://github.com/codecov/codecov-rs/actions/runs/7465738121 (0)";
     let expected_sessions = vec![models::Context {
-        id: hash_id("codecov-rs CI"),
+        id: hash_id(expected_name),
         context_type: models::ContextType::Upload,
-        name: "codecov-rs CI".to_string(),
+        name: expected_name.to_string(),
     }];
 
     let expected_json_files = HashMap::from([
@@ -94,7 +95,7 @@ fn test_parse_report_json() {
     let contexts = report.list_contexts().unwrap();
     assert_eq!(contexts.len(), 1);
     assert_eq!(contexts[0].context_type, models::ContextType::Upload);
-    assert_eq!(contexts[0].name, "codecov-rs CI".to_string());
+    assert_eq!(contexts[0].name, expected_name);
 }
 
 #[test]
@@ -239,10 +240,11 @@ fn test_parse_pyreport() {
         },
     ];
 
+    let expected_name = "[1704827412] codecov-rs CI: https://github.com/codecov/codecov-rs/actions/runs/7465738121 (0)";
     let expected_sessions = vec![models::Context {
-        id: hash_id("codecov-rs CI"),
+        id: hash_id(expected_name),
         context_type: models::ContextType::Upload,
-        name: "codecov-rs CI".to_string(),
+        name: expected_name.to_string(),
     }];
 
     // Helper function for creating our expected values
