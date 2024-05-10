@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     fs::File,
+    io::Seek,
     path::{Path, PathBuf},
 };
 
@@ -10,7 +11,9 @@ use codecov_rs::{
         pyreport,
         pyreport::{chunks, report_json},
     },
-    report::{models, Report, ReportBuilder, SqliteReport, SqliteReportBuilder},
+    report::{
+        models, pyreport::ToPyreport, Report, ReportBuilder, SqliteReport, SqliteReportBuilder,
+    },
 };
 use tempfile::TempDir;
 use winnow::Parser;
@@ -22,7 +25,7 @@ type ReportJsonStream<'a> =
 type ChunksStream<'a> = chunks::ReportOutputStream<&'a str, SqliteReport, SqliteReportBuilder>;
 
 struct Ctx {
-    _temp_dir: TempDir,
+    temp_dir: TempDir,
     db_file: PathBuf,
 }
 
@@ -30,10 +33,7 @@ fn setup() -> Ctx {
     let temp_dir = TempDir::new().ok().unwrap();
     let db_file = temp_dir.path().to_owned().join("db.sqlite");
 
-    Ctx {
-        _temp_dir: temp_dir,
-        db_file,
-    }
+    Ctx { temp_dir, db_file }
 }
 
 fn hash_id(key: &str) -> i64 {
@@ -315,4 +315,59 @@ fn test_parse_pyreport() {
             actual_contexts
         );
     }
+}
+
+#[test]
+fn test_sql_to_pyreport_to_sql_totals_match() {
+    let report_json_input_file =
+        File::open(common::sample_data_path().join("codecov-rs-reports-json-d2a9ba1.txt"))
+            .expect("Failed to open report json file");
+    let chunks_input_file =
+        File::open(common::sample_data_path().join("codecov-rs-chunks-d2a9ba1.txt"))
+            .expect("Failed to open chunks file");
+    let test_ctx = setup();
+
+    let report = pyreport::parse_pyreport(
+        &report_json_input_file,
+        &chunks_input_file,
+        test_ctx.db_file,
+    )
+    .expect("Failed to parse pyreport");
+
+    let report_json_output_path = test_ctx.temp_dir.path().join("report_json.json");
+    let chunks_output_path = test_ctx.temp_dir.path().join("chunks.txt");
+    let mut report_json_output_file = File::options()
+        .create(true)
+        .truncate(true)
+        .read(true)
+        .write(true)
+        .open(report_json_output_path)
+        .unwrap();
+    let mut chunks_output_file = File::options()
+        .create(true)
+        .truncate(true)
+        .read(true)
+        .write(true)
+        .open(chunks_output_path)
+        .unwrap();
+
+    report
+        .to_pyreport(&mut report_json_output_file, &mut chunks_output_file)
+        .expect("Failed to write to output files");
+
+    let original_totals = report.totals().unwrap();
+
+    let _ = report_json_output_file.rewind().unwrap();
+    let _ = chunks_output_file.rewind().unwrap();
+
+    let roundtrip_db_path = test_ctx.temp_dir.path().join("roundtrip.sqlite");
+    let report = pyreport::parse_pyreport(
+        &report_json_output_file,
+        &chunks_output_file,
+        roundtrip_db_path,
+    )
+    .expect("Failed to parse roundtrip report");
+    let roundtrip_totals = report.totals().unwrap();
+
+    assert_eq!(original_totals, roundtrip_totals);
 }
