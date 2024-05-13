@@ -1,6 +1,11 @@
 /*!
  * SQLite-based implementation of the [`super::Report`] and
  * [`super::ReportBuilder`] traits.
+ *
+ * Notes on SQLite performance:
+ * - Some `ORDER BY` clauses are to make writing test cases simple and may
+ *   not be necessary
+ * - Tables with UUID/BLOB PKs are declared [`WITHOUT ROWID`](https://www.sqlite.org/withoutrowid.html)
  */
 use std::path::PathBuf;
 

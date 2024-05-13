@@ -47,7 +47,7 @@ impl Report for SqliteReport {
     fn list_coverage_samples(&self) -> Result<Vec<models::CoverageSample>> {
         let mut stmt = self
             .conn
-            .prepare_cached("SELECT id, source_file_id, line_no, coverage_type, hits, hit_branches, total_branches FROM coverage_sample")?;
+            .prepare_cached("SELECT id, source_file_id, line_no, coverage_type, hits, hit_branches, total_branches FROM coverage_sample ORDER BY 2, 3")?;
         let samples = stmt
             .query_map([], |row| row.try_into())?
             .collect::<rusqlite::Result<Vec<models::CoverageSample>>>()?;

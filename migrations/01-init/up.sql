@@ -1,7 +1,7 @@
 CREATE TABLE source_file (
     id INTEGER PRIMARY KEY,
     path VARCHAR NOT NULL
-);
+) WITHOUT ROWID;
 
 CREATE TABLE coverage_sample (
     id BLOB PRIMARY KEY,
@@ -11,7 +11,7 @@ CREATE TABLE coverage_sample (
     hits INTEGER,
     hit_branches INTEGER,
     total_branches INTEGER
-);
+) WITHOUT ROWID;
 
 CREATE TABLE branches_data (
     id BLOB PRIMARY KEY,
@@ -20,7 +20,7 @@ CREATE TABLE branches_data (
     hits INTEGER NOT NULL,
     branch_format VARCHAR NOT NULL,
     branch VARCHAR NOT NULL
-);
+) WITHOUT ROWID;
 
 CREATE TABLE method_data (
     id BLOB PRIMARY KEY,
@@ -31,7 +31,7 @@ CREATE TABLE method_data (
     total_branches INTEGER,
     hit_complexity_paths INTEGER,
     total_complexity INTEGER
-);
+) WITHOUT ROWID;
 
 CREATE TABLE span_data (
     id BLOB PRIMARY KEY,
@@ -42,7 +42,7 @@ CREATE TABLE span_data (
     start_col INTEGER,
     end_line INTEGER,
     end_col INTEGER
-);
+) WITHOUT ROWID;
 
 CREATE TABLE context (
     id INTEGER PRIMARY KEY,
@@ -56,8 +56,8 @@ CREATE TABLE context_assoc (
     branch_id BLOB,
     method_id BLOB,
     span_id BLOB,
-    PRIMARY KEY(context_id, sample_id, branch_id, method_id, span_id)
-);
+    PRIMARY KEY(context_id, sample_id)
+) WITHOUT ROWID;
 
 CREATE TABLE upload_details (
     context_id INTEGER REFERENCES context(id) NOT NULL,

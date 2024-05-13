@@ -83,7 +83,8 @@ select
   coverage_sample.total_branches,
   method_data.hit_complexity_paths,
   method_data.total_complexity,
-  json_group_array(branches_data.branch) filter (where branches_data.branch is not null and branches_data.hits = 0) as missing_branches,
+  -- The `order by` below is not strictly necessary, it just makes writing test cases easier
+  json_group_array(branches_data.branch order by branches_data.branch) filter (where branches_data.branch is not null and branches_data.hits = 0) as missing_branches,
   json_group_array(json(formatted_span_data.pyreport_partial)) filter (where formatted_span_data.pyreport_partial is not null) as partials,
   json_group_array(other_contexts.name) filter (where other_contexts.name is not null) as labels
 from
