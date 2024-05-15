@@ -384,6 +384,22 @@ mod tests {
             .insert_file(expected_file.path.clone())
             .unwrap();
         assert_eq!(actual_file, expected_file);
+
+        let duplicate_result = report_builder.insert_file(expected_file.path.clone());
+        match duplicate_result {
+            Err(CodecovError::SqliteError(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error {
+                    code: rusqlite::ffi::ErrorCode::ConstraintViolation,
+                    extended_code: 1555,
+                },
+                Some(s),
+            ))) => {
+                assert_eq!(s, String::from("UNIQUE constraint failed: source_file.id"));
+            }
+            _ => {
+                assert!(false);
+            }
+        }
     }
 
     #[test]
@@ -401,6 +417,23 @@ mod tests {
             .insert_context(expected_context.context_type, &expected_context.name)
             .unwrap();
         assert_eq!(actual_context, expected_context);
+
+        let duplicate_result =
+            report_builder.insert_context(expected_context.context_type, &expected_context.name);
+        match duplicate_result {
+            Err(CodecovError::SqliteError(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error {
+                    code: rusqlite::ffi::ErrorCode::ConstraintViolation,
+                    extended_code: 1555,
+                },
+                Some(s),
+            ))) => {
+                assert_eq!(s, String::from("UNIQUE constraint failed: context.id"));
+            }
+            _ => {
+                assert!(false);
+            }
+        }
     }
 
     #[test]
@@ -623,6 +656,27 @@ mod tests {
             })
             .unwrap();
         assert_eq!(actual_assoc, expected_assoc);
+
+        let duplicate_result = report_builder.associate_context(expected_assoc.clone());
+        match duplicate_result {
+            Err(CodecovError::SqliteError(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error {
+                    code: rusqlite::ffi::ErrorCode::ConstraintViolation,
+                    extended_code: 1555,
+                },
+                Some(s),
+            ))) => {
+                assert_eq!(
+                    s,
+                    String::from(
+                        "UNIQUE constraint failed: context_assoc.context_id, context_assoc.sample_id"
+                    )
+                );
+            }
+            _ => {
+                assert!(false);
+            }
+        }
     }
 
     #[test]
