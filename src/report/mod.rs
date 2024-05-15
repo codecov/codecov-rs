@@ -4,7 +4,7 @@ use mockall::automock;
 pub mod models;
 
 pub mod sqlite;
-pub use sqlite::{SqliteReport, SqliteReportBuilder};
+pub use sqlite::{SqliteReport, SqliteReportBuilder, SqliteReportBuilderTx};
 
 #[cfg(feature = "pyreport")]
 pub mod pyreport;

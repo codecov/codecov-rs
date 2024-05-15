@@ -1,6 +1,6 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use rusqlite::Connection;
+use rusqlite::{Connection, Transaction};
 use uuid::Uuid;
 
 use super::{open_database, SqliteReport};
@@ -9,6 +9,26 @@ use crate::{
     report::{models, ReportBuilder},
 };
 
+/// Returned by [`SqliteReportBuilder::transaction`]. Contains the actual
+/// implementation for most of the `ReportBuilder` trait except for `build()`
+/// which is implemented on [`SqliteReportBuilder`]. All
+/// `SqliteReportBuilderTx`s created by a `SqliteReportBuilder` must
+/// go out of scope before `SqliteReportBuilder::build()` can be called because
+/// their `conn` member mutably borrows the SQLite database and prevents
+/// `build()` from moving it into a `SqliteReport`.
+pub struct SqliteReportBuilderTx<'a> {
+    pub filename: &'a Path,
+    pub conn: Transaction<'a>,
+}
+
+/// Implementation of the [`ReportBuilder`] trait to build [`SqliteReport`]s.
+/// The [`SqliteReportBuilder::transaction`] method returns a
+/// [`SqliteReportBuilderTx`], an auxiliary `ReportBuilder` implementation which
+/// will run its operations in a transaction that gets committed when the
+/// `SqliteReportBuilderTx` goes out of scope. A non-transaction
+/// `SqliteReportBuilder`'s `ReportBuilder` functions (except for `build()`)
+/// call `self.transaction()?` for each call and delegate to the
+/// `SqliteReportBuilderTx` implementation.
 pub struct SqliteReportBuilder {
     pub filename: PathBuf,
     pub conn: Connection,
@@ -19,9 +39,125 @@ impl SqliteReportBuilder {
         let conn = open_database(&filename)?;
         Ok(SqliteReportBuilder { filename, conn })
     }
+
+    /// Create a [`SqliteReportBuilderTx`] with a [`rusqlite::Transaction`] that
+    /// will automatically commit itself when it goes out of scope.
+    ///
+    /// Each `Transaction` holds a mutable reference to `self.conn` and prevents
+    /// `self.build()` from being called.
+    pub fn transaction(&mut self) -> Result<SqliteReportBuilderTx<'_>> {
+        let mut builder_tx = SqliteReportBuilderTx {
+            filename: &self.filename,
+            conn: self.conn.transaction()?,
+        };
+        builder_tx
+            .conn
+            .set_drop_behavior(rusqlite::DropBehavior::Commit);
+        Ok(builder_tx)
+    }
 }
 
 impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
+    fn insert_file(&mut self, path: String) -> Result<models::SourceFile> {
+        self.transaction()?.insert_file(path)
+    }
+
+    fn insert_context(
+        &mut self,
+        context_type: models::ContextType,
+        name: &str,
+    ) -> Result<models::Context> {
+        self.transaction()?.insert_context(context_type, name)
+    }
+
+    fn insert_coverage_sample(
+        &mut self,
+        sample: models::CoverageSample,
+    ) -> Result<models::CoverageSample> {
+        self.transaction()?.insert_coverage_sample(sample)
+    }
+
+    fn insert_branches_data(
+        &mut self,
+        branch: models::BranchesData,
+    ) -> Result<models::BranchesData> {
+        self.transaction()?.insert_branches_data(branch)
+    }
+
+    fn insert_method_data(&mut self, method: models::MethodData) -> Result<models::MethodData> {
+        self.transaction()?.insert_method_data(method)
+    }
+
+    fn insert_span_data(&mut self, span: models::SpanData) -> Result<models::SpanData> {
+        self.transaction()?.insert_span_data(span)
+    }
+
+    fn associate_context<'b>(
+        &mut self,
+        assoc: models::ContextAssoc,
+    ) -> Result<models::ContextAssoc> {
+        self.transaction()?.associate_context(assoc)
+    }
+
+    fn insert_upload_details(
+        &mut self,
+        upload_details: models::UploadDetails,
+    ) -> Result<models::UploadDetails> {
+        self.transaction()?.insert_upload_details(upload_details)
+    }
+
+    /// Consumes this builder and returns a [`SqliteReport`].
+    ///
+    /// If any
+    /// [`SqliteReportBuilderTx`]s are still in scope, they hold a mutable
+    /// reference to `self.conn` and prevent this function from being
+    /// called:
+    /// ```compile_fail,E0505
+    /// # use codecov_rs::report::sqlite::*;
+    /// # use codecov_rs::report::ReportBuilder;
+    /// # use tempfile::tempdir;
+    /// # let temp_dir = tempdir().unwrap();
+    /// # let db_file = temp_dir.path().join("test.db");
+    ///
+    /// let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+    ///
+    /// let mut tx = report_builder.transaction().unwrap();
+    /// let _ = tx.insert_file("foo.rs".to_string());
+    /// let _ = tx.insert_file("bar.rs".to_string());
+    ///
+    /// // ERROR: cannot move out of `report_builder` because it is borrowed
+    /// let report = report_builder.build();
+    /// ```
+    ///
+    /// Making sure they go out of scope will unblock calling `build()`:
+    /// ```
+    /// # use codecov_rs::report::sqlite::*;
+    /// # use codecov_rs::report::ReportBuilder;
+    /// # use tempfile::tempdir;
+    /// # let temp_dir = tempdir().unwrap();
+    /// # let db_file = temp_dir.path().join("test.db");
+    ///
+    /// let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+    ///
+    /// // `tx` will go out of scope at the end of this block
+    /// {
+    ///     let mut tx = report_builder.transaction().unwrap();
+    ///     let _ = tx.insert_file("foo.rs".to_string());
+    ///     let _ = tx.insert_file("bar.rs".to_string());
+    /// }
+    ///
+    /// // Works fine now
+    /// let report = report_builder.build();
+    /// ```
+    fn build(self) -> SqliteReport {
+        SqliteReport {
+            filename: self.filename,
+            conn: self.conn,
+        }
+    }
+}
+
+impl<'a> ReportBuilder<SqliteReport> for SqliteReportBuilderTx<'a> {
     fn insert_file(&mut self, path: String) -> Result<models::SourceFile> {
         let mut stmt = self.conn.prepare_cached(
             "INSERT INTO source_file (id, path) VALUES (?1, ?2) RETURNING id, path",
@@ -121,7 +257,7 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
         Ok(span)
     }
 
-    fn associate_context<'a>(
+    fn associate_context<'b>(
         &mut self,
         assoc: models::ContextAssoc,
     ) -> Result<models::ContextAssoc> {
@@ -165,10 +301,7 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
     }
 
     fn build(self) -> SqliteReport {
-        SqliteReport {
-            filename: self.filename,
-            conn: self.conn,
-        }
+        panic!("Error - tried to build a report with a transaction in progress");
     }
 }
 
