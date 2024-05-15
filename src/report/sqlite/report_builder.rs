@@ -21,6 +21,12 @@ pub struct SqliteReportBuilderTx<'a> {
     pub conn: Transaction<'a>,
 }
 
+impl<'a> SqliteReportBuilderTx<'a> {
+    pub fn rollback(self) -> Result<()> {
+        Ok(self.conn.rollback()?)
+    }
+}
+
 /// Implementation of the [`ReportBuilder`] trait to build [`SqliteReport`]s.
 /// The [`SqliteReportBuilder::transaction`] method returns a
 /// [`SqliteReportBuilderTx`], an auxiliary `ReportBuilder` implementation which
@@ -145,6 +151,25 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
     ///     let _ = tx.insert_file("foo.rs".to_string());
     ///     let _ = tx.insert_file("bar.rs".to_string());
     /// }
+    ///
+    /// // Works fine now
+    /// let report = report_builder.build().unwrap();
+    /// ```
+    ///
+    /// Rolling the transaction back also works:
+    /// ```
+    /// # use codecov_rs::report::sqlite::*;
+    /// # use codecov_rs::report::ReportBuilder;
+    /// # use tempfile::tempdir;
+    /// # let temp_dir = tempdir().unwrap();
+    /// # let db_file = temp_dir.path().join("test.db");
+    ///
+    /// let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+    ///
+    /// let mut tx = report_builder.transaction().unwrap();
+    /// let _ = tx.insert_file("foo.rs".to_string());
+    /// let _ = tx.insert_file("bar.rs".to_string());
+    /// let _ = tx.rollback();
     ///
     /// // Works fine now
     /// let report = report_builder.build().unwrap();
@@ -667,5 +692,21 @@ mod tests {
             }
             _ => assert!(false),
         }
+    }
+
+    #[test]
+    fn test_transaction_rollback() {
+        let ctx = setup();
+        let db_file = ctx.temp_dir.path().join("db.sqlite");
+        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+
+        let mut tx = report_builder.transaction().unwrap();
+        let _ = tx.insert_file("foo.rs".to_string());
+        let _ = tx.insert_file("bar.rs".to_string());
+        let _ = tx.rollback();
+
+        let report = report_builder.build().unwrap();
+        let files = report.list_files().unwrap();
+        assert_eq!(files.len(), 0);
     }
 }
