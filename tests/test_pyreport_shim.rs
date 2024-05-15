@@ -87,7 +87,7 @@ fn test_parse_report_json() {
     assert_eq!(actual_files, expected_json_files);
     assert_eq!(actual_sessions, expected_json_sessions);
 
-    let report = buf.state.report_builder.build();
+    let report = buf.state.report_builder.build().unwrap();
 
     let files = report.list_files().unwrap();
     assert_eq!(files, expected_files);
@@ -191,7 +191,7 @@ fn test_parse_chunks_file() {
         }
     }
 
-    let report = buf.state.db.report_builder.build();
+    let report = buf.state.db.report_builder.build().unwrap();
     let actual_coverage_samples = report
         .list_coverage_samples()
         .expect("Failed to list coverage samples");

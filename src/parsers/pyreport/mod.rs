@@ -80,5 +80,5 @@ pub fn parse_pyreport(
             .map_err(CodecovError::ParserError)?;
     }
     // Build and return the `SqliteReport`
-    Ok(report_builder.build())
+    report_builder.build()
 }

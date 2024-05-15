@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use super::{open_database, SqliteReport};
 use crate::{
-    error::Result,
+    error::{CodecovError, Result},
     report::{models, ReportBuilder},
 };
 
@@ -126,7 +126,7 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
     /// let _ = tx.insert_file("bar.rs".to_string());
     ///
     /// // ERROR: cannot move out of `report_builder` because it is borrowed
-    /// let report = report_builder.build();
+    /// let report = report_builder.build().unwrap();
     /// ```
     ///
     /// Making sure they go out of scope will unblock calling `build()`:
@@ -147,13 +147,13 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
     /// }
     ///
     /// // Works fine now
-    /// let report = report_builder.build();
+    /// let report = report_builder.build().unwrap();
     /// ```
-    fn build(self) -> SqliteReport {
-        SqliteReport {
+    fn build(self) -> Result<SqliteReport> {
+        Ok(SqliteReport {
             filename: self.filename,
             conn: self.conn,
-        }
+        })
     }
 }
 
@@ -300,8 +300,10 @@ impl<'a> ReportBuilder<SqliteReport> for SqliteReportBuilderTx<'a> {
         Ok(upload_details)
     }
 
-    fn build(self) -> SqliteReport {
-        panic!("Error - tried to build a report with a transaction in progress");
+    fn build(self) -> Result<SqliteReport> {
+        Err(CodecovError::ReportBuilderError(
+            "called `build()` on a transaction".to_string(),
+        ))
     }
 }
 
@@ -630,14 +632,39 @@ mod tests {
             .insert_context(models::ContextType::Upload, "codecov-rs CI 2")
             .unwrap();
 
-        let report = report_builder.build();
+        let report = report_builder.build().unwrap();
         let fetched_details = report.get_details_for_upload(&upload).unwrap();
         assert_eq!(fetched_details, inserted_details);
 
         let other_details_result = report.get_details_for_upload(&other_upload);
         assert!(other_details_result.is_err());
         match other_details_result {
-            Err(crate::error::CodecovError::SqliteError(rusqlite::Error::QueryReturnedNoRows)) => {}
+            Err(CodecovError::SqliteError(rusqlite::Error::QueryReturnedNoRows)) => {}
+            _ => assert!(false),
+        }
+    }
+
+    #[test]
+    fn test_transaction_drop_behavior() {
+        let ctx = setup();
+        let db_file = ctx.temp_dir.path().join("db.sqlite");
+        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+
+        let tx = report_builder.transaction().unwrap();
+        assert_eq!(tx.conn.drop_behavior(), rusqlite::DropBehavior::Commit);
+    }
+
+    #[test]
+    fn test_transaction_cannot_build() {
+        let ctx = setup();
+        let db_file = ctx.temp_dir.path().join("db.sqlite");
+        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+
+        let tx = report_builder.transaction().unwrap();
+        match tx.build() {
+            Err(CodecovError::ReportBuilderError(s)) => {
+                assert_eq!(s, "called `build()` on a transaction".to_string())
+            }
             _ => assert!(false),
         }
     }

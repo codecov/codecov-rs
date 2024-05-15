@@ -10,6 +10,9 @@ pub enum CodecovError {
     #[error("sqlite migration failure: '{0}'")]
     SqliteMigrationError(#[from] rusqlite_migration::Error),
 
+    #[error("report builder error: '{0}'")]
+    ReportBuilderError(String),
+
     // Can't use #[from]
     #[error("parser error: '{0}'")]
     ParserError(winnow::error::ContextError),
@@ -18,6 +21,6 @@ pub enum CodecovError {
     IOError(#[from] std::io::Error),
 
     #[cfg(feature = "pyreport")]
-    #[error("failed to convert sqlite to pyreport")]
+    #[error("failed to convert sqlite to pyreport: '{0}'")]
     PyreportConversionError(String),
 }

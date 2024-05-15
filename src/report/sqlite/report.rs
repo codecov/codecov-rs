@@ -273,8 +273,8 @@ mod tests {
             });
         }
 
-        let mut left = left_report_builder.build();
-        let right = right_report_builder.build();
+        let mut left = left_report_builder.build().unwrap();
+        let right = right_report_builder.build().unwrap();
         left.merge(&right).unwrap();
         assert_eq!(
             left.list_files().unwrap().sort_by_key(|f| f.id),
@@ -375,7 +375,7 @@ mod tests {
             });
         }
 
-        let report = report_builder.build();
+        let report = report_builder.build().unwrap();
 
         let expected_totals = models::ReportTotals {
             files: 2,

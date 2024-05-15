@@ -84,5 +84,5 @@ pub trait ReportBuilder<R: Report> {
     ) -> Result<models::UploadDetails>;
 
     /// Consume `self` and return a [`Report`].
-    fn build(self) -> R;
+    fn build(self) -> Result<R>;
 }

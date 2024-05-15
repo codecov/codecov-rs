@@ -606,7 +606,7 @@ mod tests {
             ..Default::default()
         })?;
 
-        Ok(builder.build())
+        builder.build()
     }
 
     #[test]
