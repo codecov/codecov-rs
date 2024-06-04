@@ -256,7 +256,10 @@
  * - [`CoverageDatapoint`](https://github.com/codecov/shared/blob/f6c2c3852530192ab0c6b9fd0c0a800c2cbdb16f/shared/reports/types.py#L98)
  */
 
-use std::fs::File;
+use std::{
+    fs::File,
+    io::{BufWriter, Write},
+};
 
 use super::SqliteReport;
 use crate::error::Result;
@@ -276,8 +279,14 @@ pub trait ToPyreport {
 
 impl ToPyreport for SqliteReport {
     fn to_pyreport(&self, report_json_file: &mut File, chunks_file: &mut File) -> Result<()> {
-        report_json::sql_to_report_json(self, report_json_file)?;
-        chunks::sql_to_chunks(self, chunks_file)?;
+        let mut writer = BufWriter::new(report_json_file);
+        report_json::sql_to_report_json(self, &mut writer)?;
+        writer.flush()?;
+
+        let mut writer = BufWriter::new(chunks_file);
+        chunks::sql_to_chunks(self, &mut writer)?;
+        writer.flush()?;
+
         Ok(())
     }
 }

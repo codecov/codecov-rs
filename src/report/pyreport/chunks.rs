@@ -1,4 +1,4 @@
-use std::{fs::File, io::Write};
+use std::io::Write;
 
 use serde_json::{json, json_internal};
 
@@ -52,7 +52,7 @@ fn query_chunks_file_header(report: &SqliteReport) -> Result<JsonVal> {
 /// current chunk, even if there is no data for lines 11-16.
 fn maybe_write_current_line(
     current_line: Option<(i64, JsonVal)>,
-    output_file: &mut File,
+    output: &mut impl Write,
     last_populated_line: i64,
 ) -> Result<i64> {
     if let Some((line_no, line_values)) = current_line {
@@ -60,14 +60,13 @@ fn maybe_write_current_line(
         // to write any newlines. If last_populated_line is 0 (its starting value) and
         // we're dealing with 1 (the first line), same story.
         for _ in last_populated_line..line_no - 1 {
-            let _ = output_file.write("\n".as_bytes())?;
+            writeln!(output)?;
         }
 
         // Every line is preceded by, but not followed by, a newline. When starting a
         // new chunk, the cursor will be at the end of the header object on the
         // line before data is supposed to start.
-        let _ = output_file
-            .write(format!("\n{}", array_without_trailing_nulls(line_values)).as_bytes())?;
+        write!(output, "\n{}", array_without_trailing_nulls(line_values))?;
         Ok(line_no)
     } else {
         // We don't have a new line to print. Return the old value for
@@ -219,10 +218,12 @@ fn build_datapoint_from_row(row: &rusqlite::Row) -> Result<Option<JsonVal>> {
 /// Builds a chunks file from a [`SqliteReport`] and writes it to `output_file`.
 /// See [`crate::report::pyreport`] for more details about the content and
 /// structure of a chunks file.
-pub fn sql_to_chunks(report: &SqliteReport, output_file: &mut File) -> Result<()> {
+pub fn sql_to_chunks(report: &SqliteReport, output: &mut impl Write) -> Result<()> {
     let chunks_file_header = query_chunks_file_header(report)?;
-    let _ = output_file
-        .write(format!("{}{}", chunks_file_header, CHUNKS_FILE_HEADER_TERMINATOR).as_bytes())?;
+    write!(
+        output,
+        "{chunks_file_header}{CHUNKS_FILE_HEADER_TERMINATOR}"
+    )?;
 
     // TODO: query from chunk_indices rather than samples in case there are chunks
     // with no samples?
@@ -252,7 +253,7 @@ pub fn sql_to_chunks(report: &SqliteReport, output_file: &mut File) -> Result<()
         };
         if is_new_chunk || is_new_line {
             last_populated_line =
-                maybe_write_current_line(current_report_line, output_file, last_populated_line)?;
+                maybe_write_current_line(current_report_line, output, last_populated_line)?;
             current_report_line = Some(build_report_line_from_row(row)?);
 
             if is_new_chunk {
@@ -267,14 +268,12 @@ pub fn sql_to_chunks(report: &SqliteReport, output_file: &mut File) -> Result<()
                 } else {
                     CHUNKS_FILE_END_OF_CHUNK
                 };
-                let _ = output_file.write(
-                    format!(
-                        "{}{}",
-                        delimiter,
-                        json!({"present_sessions": present_sessions})
-                    )
-                    .as_bytes(),
+                write!(
+                    output,
+                    "{delimiter}{}",
+                    json!({"present_sessions": present_sessions})
                 )?;
+
                 current_chunk = Some(chunk_index);
                 last_populated_line = 0;
             }
@@ -307,17 +306,14 @@ pub fn sql_to_chunks(report: &SqliteReport, output_file: &mut File) -> Result<()
     // The loop writes each line when it gets to the first row from the next line.
     // There are no rows following the last line, so we have to manually write
     // it here.
-    maybe_write_current_line(current_report_line, output_file, last_populated_line)?;
+    maybe_write_current_line(current_report_line, output, last_populated_line)?;
 
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        io::{Read, Seek},
-        path::PathBuf,
-    };
+    use std::path::PathBuf;
 
     use serde_json::{json, json_internal};
     use tempfile::TempDir;
@@ -895,34 +891,25 @@ mod tests {
 
     #[test]
     fn test_maybe_write_current_line() {
-        let ctx = setup();
-
-        let test_cases = [
-            (None, 1, 1, ""),
-            (None, 2, 2, ""),
-            (Some((3, json!(["foo"]))), 1, 3, "\n\n[\"foo\"]"),
-            (Some((7, json!(["foo"]))), 5, 7, "\n\n[\"foo\"]"),
-            (Some((7, json!(["foo"]))), 7, 7, "\n[\"foo\"]"),
+        let test_cases: [(_, _, _, &[u8]); 6] = [
+            (None, 1, 1, b""),
+            (None, 2, 2, b""),
+            (Some((3, json!(["foo"]))), 1, 3, b"\n\n[\"foo\"]"),
+            (Some((7, json!(["foo"]))), 5, 7, b"\n\n[\"foo\"]"),
+            (Some((7, json!(["foo"]))), 7, 7, b"\n[\"foo\"]"),
             // Shouldn't happen, just documenting behavior
-            (Some((7, json!(["foo"]))), 8, 7, "\n[\"foo\"]"),
+            (Some((7, json!(["foo"]))), 8, 7, b"\n[\"foo\"]"),
         ];
-        for test_case in test_cases {
-            let mut dummy_file = File::options()
-                .create(true)
-                .truncate(true)
-                .read(true)
-                .write(true)
-                .open(ctx.temp_dir.path().join("dummy.txt"))
-                .unwrap();
-
+        for (current_line, previous_last_populated, expected_last_populated, expected_output) in
+            test_cases
+        {
+            let mut output = Vec::new();
             let last_populated_line =
-                maybe_write_current_line(test_case.0, &mut dummy_file, test_case.1).unwrap();
-            assert_eq!(last_populated_line, test_case.2);
+                maybe_write_current_line(current_line, &mut output, previous_last_populated)
+                    .unwrap();
+            assert_eq!(last_populated_line, expected_last_populated);
 
-            let _ = dummy_file.rewind();
-            let mut file_str = String::new();
-            let _ = dummy_file.read_to_string(&mut file_str);
-            assert_eq!(file_str, test_case.3);
+            assert_eq!(&output, expected_output);
         }
     }
 
@@ -945,20 +932,10 @@ mod tests {
     fn test_sql_to_chunks() {
         let ctx = setup();
         let report = build_sample_report(ctx.temp_dir.path().join("db.sqlite")).unwrap();
-        let chunks_path = ctx.temp_dir.path().join("chunks.txt");
-        let mut chunks_file = File::options()
-            .create(true)
-            .truncate(true)
-            .read(true)
-            .write(true)
-            .open(&chunks_path)
-            .unwrap();
 
-        sql_to_chunks(&report, &mut chunks_file).unwrap();
-
-        let mut chunks = String::new();
-        let _ = chunks_file.rewind().unwrap();
-        let _ = chunks_file.read_to_string(&mut chunks).unwrap();
+        let mut chunks = Vec::new();
+        sql_to_chunks(&report, &mut chunks).unwrap();
+        let chunks = String::from_utf8(chunks).unwrap();
 
         let chunks_header = json!({"labels_index": {"1": "test-case", "2": "test-case 2"}});
         // line_1 variable in build_sample_report()

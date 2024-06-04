@@ -1,4 +1,4 @@
-use std::{fs::File, io::Write};
+use std::io::Write;
 
 use serde_json::{json, json_internal};
 
@@ -35,7 +35,7 @@ fn calculate_coverage_pct(hits: i64, lines: i64) -> String {
 ///
 /// See [`crate::report::pyreport`] for more details about the content and
 /// structure of a report JSON.
-fn sql_to_files_dict(report: &SqliteReport, output_file: &mut File) -> Result<()> {
+fn sql_to_files_dict(report: &SqliteReport, output: &mut impl Write) -> Result<()> {
     let mut stmt = report
         .conn
         .prepare_cached(include_str!("queries/files_to_report_json.sql"))?;
@@ -43,13 +43,12 @@ fn sql_to_files_dict(report: &SqliteReport, output_file: &mut File) -> Result<()
 
     fn maybe_write_current_file(
         current_file: &Option<(String, JsonVal)>,
-        output_file: &mut File,
+        output: &mut impl Write,
         first_file: bool,
     ) -> Result<()> {
         if let Some((current_path, current_file)) = &current_file {
             let delimiter = if first_file { "" } else { "," };
-            let _ = output_file
-                .write(format!("{}\"{}\": {}", delimiter, current_path, current_file).as_bytes())?;
+            write!(output, "{delimiter}\"{current_path}\": {current_file}")?;
         }
         Ok(())
     }
@@ -126,7 +125,7 @@ fn sql_to_files_dict(report: &SqliteReport, output_file: &mut File) -> Result<()
     // Write the "files" key to the output file and build its value by iterating
     // over our query results. It's the caller's responsibility to write
     // surroundings {}s or ,s as needed.
-    let _ = output_file.write("\"files\": {".as_bytes())?;
+    write!(output, "\"files\": {{")?;
 
     // Each row in our query results corresponds to a single session, and a file can
     // have several sessions. We build up the current file over many rows, and
@@ -147,7 +146,7 @@ fn sql_to_files_dict(report: &SqliteReport, output_file: &mut File) -> Result<()
         // effectively no-op `maybe_write_current_file()` and leave `first_file`
         // as `false` in that case and then begin building the first file.
         if is_new_file {
-            maybe_write_current_file(&current_file, output_file, first_file)?;
+            maybe_write_current_file(&current_file, output, first_file)?;
             first_file = current_file.is_none();
             current_file = Some(build_file_from_row(row)?);
         }
@@ -179,9 +178,9 @@ fn sql_to_files_dict(report: &SqliteReport, output_file: &mut File) -> Result<()
     // The loop writes each file when it gets to the first row from the next file.
     // There are no rows following the last file, so we have to manually write
     // it here.
-    maybe_write_current_file(&current_file, output_file, first_file)?;
+    maybe_write_current_file(&current_file, output, first_file)?;
 
-    let _ = output_file.write("}".as_bytes())?;
+    write!(output, "}}")?;
     Ok(())
 }
 
@@ -202,7 +201,7 @@ fn sql_to_files_dict(report: &SqliteReport, output_file: &mut File) -> Result<()
 ///
 /// See [`crate::report::pyreport`] for more details about the content and
 /// structure of a report JSON.
-fn sql_to_sessions_dict(report: &SqliteReport, output_file: &mut File) -> Result<()> {
+fn sql_to_sessions_dict(report: &SqliteReport, output: &mut impl Write) -> Result<()> {
     let mut stmt = report
         .conn
         .prepare_cached(include_str!("queries/sessions_to_report_json.sql"))?;
@@ -293,37 +292,35 @@ fn sql_to_sessions_dict(report: &SqliteReport, output_file: &mut File) -> Result
     // Write the "sessions" key to the output file and build its value by iterating
     // over our query results. It's the caller's responsibility to write
     // surroundings {}s or ,s as needed.
-    let _ = output_file.write("\"sessions\": {".as_bytes())?;
+    write!(output, "\"sessions\": {{")?;
     let mut first_session = true;
     while let Some(row) = rows.next()? {
         let (session_id, session) = build_session_from_row(row)?;
         // No preceding , for the first session we write
         let delimiter = if first_session { "" } else { "," };
-        let _ = output_file
-            .write(format!("{}\"{}\": {}", delimiter, session_id, session).as_bytes())?;
+        write!(output, "{delimiter}\"{session_id}\": {session}")?;
         first_session = false;
     }
-
-    let _ = output_file.write("}".as_bytes())?;
+    write!(output, "}}")?;
     Ok(())
 }
 
 /// Builds a report JSON from a [`SqliteReport`] and writes it to `output_file`.
 /// See [`crate::report::pyreport`] for more details about the content and
 /// structure of a report JSON.
-pub fn sql_to_report_json(report: &SqliteReport, output_file: &mut File) -> Result<()> {
-    let _ = output_file.write("{".as_bytes())?;
-    sql_to_files_dict(report, output_file)?;
-    let _ = output_file.write(",".as_bytes())?;
-    sql_to_sessions_dict(report, output_file)?;
-    let _ = output_file.write("}".as_bytes())?;
+pub fn sql_to_report_json(report: &SqliteReport, output: &mut impl Write) -> Result<()> {
+    write!(output, "{{")?;
+    sql_to_files_dict(report, output)?;
+    write!(output, ",")?;
+    sql_to_sessions_dict(report, output)?;
+    write!(output, "}}")?;
 
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{io::Seek, path::PathBuf};
+    use std::path::PathBuf;
 
     use serde_json::{json, json_internal};
     use tempfile::TempDir;
@@ -616,21 +613,13 @@ mod tests {
     fn test_sql_to_files_dict() {
         let ctx = setup();
         let report = build_sample_report(ctx.temp_dir.path().join("db.sqlite")).unwrap();
-        let report_json_path = ctx.temp_dir.path().join("report_json.json");
-        let mut report_json_file = File::options()
-            .create(true)
-            .truncate(true)
-            .read(true)
-            .write(true)
-            .open(&report_json_path)
-            .unwrap();
 
-        let _ = report_json_file.write("{".as_bytes()).unwrap();
-        sql_to_files_dict(&report, &mut report_json_file).unwrap();
-        let _ = report_json_file.write("}".as_bytes()).unwrap();
+        let mut files_output = Vec::new();
+        files_output.push(b'{');
+        sql_to_files_dict(&report, &mut files_output).unwrap();
+        files_output.push(b'}');
 
-        let _ = report_json_file.rewind().unwrap();
-        let files_dict: JsonVal = serde_json::from_reader(&report_json_file).unwrap();
+        let files_dict: JsonVal = serde_json::from_slice(&files_output).unwrap();
 
         let expected = json!({
             "files": {
@@ -698,28 +687,20 @@ mod tests {
             }
         });
 
-        assert_eq!(files_dict, expected,);
+        assert_eq!(files_dict, expected);
     }
 
     #[test]
     fn test_sql_to_sessions_dict() {
         let ctx = setup();
         let report = build_sample_report(ctx.temp_dir.path().join("db.sqlite")).unwrap();
-        let report_json_path = ctx.temp_dir.path().join("report_json.json");
-        let mut report_json_file = File::options()
-            .create(true)
-            .truncate(true)
-            .read(true)
-            .write(true)
-            .open(&report_json_path)
-            .unwrap();
 
-        let _ = report_json_file.write("{".as_bytes()).unwrap();
-        sql_to_sessions_dict(&report, &mut report_json_file).unwrap();
-        let _ = report_json_file.write("}".as_bytes()).unwrap();
+        let mut sessions_output = Vec::new();
+        sessions_output.push(b'{');
+        sql_to_sessions_dict(&report, &mut sessions_output).unwrap();
+        sessions_output.push(b'}');
 
-        let _ = report_json_file.rewind().unwrap();
-        let sessions_dict: JsonVal = serde_json::from_reader(&report_json_file).unwrap();
+        let sessions_dict: JsonVal = serde_json::from_slice(&sessions_output).unwrap();
 
         let expected = json!({
             "sessions": {
@@ -791,19 +772,10 @@ mod tests {
     fn test_sql_to_report_json() {
         let ctx = setup();
         let report = build_sample_report(ctx.temp_dir.path().join("db.sqlite")).unwrap();
-        let report_json_path = ctx.temp_dir.path().join("report_json.json");
-        let mut report_json_file = File::options()
-            .create(true)
-            .truncate(true)
-            .read(true)
-            .write(true)
-            .open(&report_json_path)
-            .unwrap();
 
-        sql_to_report_json(&report, &mut report_json_file).unwrap();
-
-        let _ = report_json_file.rewind().unwrap();
-        let report_json: JsonVal = serde_json::from_reader(&report_json_file).unwrap();
+        let mut report_output = Vec::new();
+        sql_to_report_json(&report, &mut report_output).unwrap();
+        let report_json: JsonVal = serde_json::from_slice(&report_output).unwrap();
 
         // All of the totals are the same as in previous test cases so they have been
         // collapsed/uncommented for brevity
@@ -866,19 +838,10 @@ mod tests {
         assert_eq!(report_json, expected);
 
         let empty_report = SqliteReport::new(ctx.temp_dir.path().join("empty.db")).unwrap();
-        let report_json_path = ctx.temp_dir.path().join("report_json.json");
-        let mut report_json_file = File::options()
-            .create(true)
-            .truncate(true)
-            .read(true)
-            .write(true)
-            .open(&report_json_path)
-            .unwrap();
 
-        sql_to_report_json(&empty_report, &mut report_json_file).unwrap();
-
-        let _ = report_json_file.rewind().unwrap();
-        let report_json: JsonVal = serde_json::from_reader(&report_json_file).unwrap();
+        let mut report_output = Vec::new();
+        sql_to_report_json(&empty_report, &mut report_output).unwrap();
+        let report_json: JsonVal = serde_json::from_slice(&report_output).unwrap();
 
         let expected = json!({"files": {}, "sessions": {}});
         assert_eq!(report_json, expected);
