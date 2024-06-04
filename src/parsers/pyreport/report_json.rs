@@ -358,7 +358,7 @@ mod tests {
     }
 
     mod report_json {
-        use serde_json::{json, json_internal};
+        use serde_json::json;
 
         use super::*;
         use crate::parsers::json::JsonMap;

@@ -1,6 +1,6 @@
 use std::{fs::File, io::Write};
 
-use serde_json::{json, json_internal};
+use serde_json::json;
 
 use crate::{
     error::{CodecovError, Result},
@@ -325,7 +325,7 @@ pub fn sql_to_report_json(report: &SqliteReport, output_file: &mut File) -> Resu
 mod tests {
     use std::{io::Seek, path::PathBuf};
 
-    use serde_json::{json, json_internal};
+    use serde_json::json;
     use tempfile::TempDir;
 
     use super::*;

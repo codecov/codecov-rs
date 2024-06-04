@@ -1,6 +1,6 @@
 use std::{fs::File, io::Write};
 
-use serde_json::{json, json_internal};
+use serde_json::json;
 
 use super::{CHUNKS_FILE_END_OF_CHUNK, CHUNKS_FILE_HEADER_TERMINATOR};
 use crate::{
@@ -319,7 +319,7 @@ mod tests {
         path::PathBuf,
     };
 
-    use serde_json::{json, json_internal};
+    use serde_json::json;
     use tempfile::TempDir;
 
     use super::*;
