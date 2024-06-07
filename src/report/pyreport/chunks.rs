@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use serde_json::{json, json_internal};
+use serde_json::json;
 
 use super::{CHUNKS_FILE_END_OF_CHUNK, CHUNKS_FILE_HEADER_TERMINATOR};
 use crate::{
@@ -315,7 +315,7 @@ pub fn sql_to_chunks(report: &SqliteReport, output: &mut impl Write) -> Result<(
 mod tests {
     use std::path::PathBuf;
 
-    use serde_json::{json, json_internal};
+    use serde_json::json;
     use tempfile::TempDir;
 
     use super::*;

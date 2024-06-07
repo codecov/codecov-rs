@@ -337,7 +337,7 @@ mod tests {
     use std::num::NonZeroUsize;
 
     use rusqlite_migration::SchemaVersion;
-    use serde_json::{json, json_internal};
+    use serde_json::json;
     use tempfile::TempDir;
 
     use super::*;
