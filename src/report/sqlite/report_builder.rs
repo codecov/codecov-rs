@@ -1,9 +1,8 @@
 use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, Transaction};
-use uuid::Uuid;
 
-use super::{open_database, SqliteReport};
+use super::{models::Insertable, open_database, SqliteReport};
 use crate::{
     error::{CodecovError, Result},
     report::{models, ReportBuilder},
@@ -184,15 +183,13 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
 
 impl<'a> ReportBuilder<SqliteReport> for SqliteReportBuilderTx<'a> {
     fn insert_file(&mut self, path: String) -> Result<models::SourceFile> {
-        let mut stmt = self.conn.prepare_cached(
-            "INSERT INTO source_file (id, path) VALUES (?1, ?2) RETURNING id, path",
-        )?;
-
-        Ok(
-            stmt.query_row((seahash::hash(path.as_bytes()) as i64, path), |row| {
-                row.try_into()
-            })?,
-        )
+        let mut model = models::SourceFile {
+            path,
+            ..Default::default()
+        };
+        model.assign_id();
+        <models::SourceFile as Insertable<2>>::insert(&model, &self.conn)?;
+        Ok(model)
     }
 
     fn insert_context(
@@ -200,33 +197,22 @@ impl<'a> ReportBuilder<SqliteReport> for SqliteReportBuilderTx<'a> {
         context_type: models::ContextType,
         name: &str,
     ) -> Result<models::Context> {
-        let mut stmt = self.conn.prepare_cached("INSERT INTO context (id, context_type, name) VALUES (?1, ?2, ?3) RETURNING id, context_type, name")?;
-        Ok(stmt.query_row(
-            (
-                seahash::hash(name.as_bytes()) as i64,
-                context_type.to_string(),
-                name,
-            ),
-            |row| row.try_into(),
-        )?)
+        let mut model = models::Context {
+            context_type,
+            name: name.to_string(),
+            ..Default::default()
+        };
+        model.assign_id();
+        <models::Context as Insertable<3>>::insert(&model, &self.conn)?;
+        Ok(model)
     }
 
     fn insert_coverage_sample(
         &mut self,
         mut sample: models::CoverageSample,
     ) -> Result<models::CoverageSample> {
-        let mut stmt = self.conn.prepare_cached("INSERT INTO coverage_sample (id, source_file_id, line_no, coverage_type, hits, hit_branches, total_branches) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")?;
-        sample.id = Uuid::new_v4();
-        let _ = stmt.execute((
-            sample.id,
-            sample.source_file_id,
-            sample.line_no,
-            sample.coverage_type,
-            sample.hits,
-            sample.hit_branches,
-            sample.total_branches,
-        ))?;
-
+        sample.assign_id();
+        <models::CoverageSample as Insertable<7>>::insert(&sample, &self.conn)?;
         Ok(sample)
     }
 
@@ -234,51 +220,20 @@ impl<'a> ReportBuilder<SqliteReport> for SqliteReportBuilderTx<'a> {
         &mut self,
         mut branch: models::BranchesData,
     ) -> Result<models::BranchesData> {
-        let mut stmt = self.conn.prepare_cached("INSERT INTO branches_data (id, source_file_id, sample_id, hits, branch_format, branch) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
-
-        branch.id = Uuid::new_v4();
-        let _ = stmt.execute((
-            branch.id,
-            branch.source_file_id,
-            branch.sample_id,
-            branch.hits,
-            branch.branch_format,
-            &branch.branch,
-        ))?;
+        branch.assign_id();
+        <models::BranchesData as Insertable<6>>::insert(&branch, &self.conn)?;
         Ok(branch)
     }
 
     fn insert_method_data(&mut self, mut method: models::MethodData) -> Result<models::MethodData> {
-        let mut stmt = self.conn.prepare_cached("INSERT INTO method_data (id, source_file_id, sample_id, line_no, hit_branches, total_branches, hit_complexity_paths, total_complexity) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")?;
-        method.id = Uuid::new_v4();
-
-        let _ = stmt.execute((
-            method.id,
-            method.source_file_id,
-            method.sample_id,
-            method.line_no,
-            method.hit_branches,
-            method.total_branches,
-            method.hit_complexity_paths,
-            method.total_complexity,
-        ))?;
+        method.assign_id();
+        <models::MethodData as Insertable<8>>::insert(&method, &self.conn)?;
         Ok(method)
     }
 
     fn insert_span_data(&mut self, mut span: models::SpanData) -> Result<models::SpanData> {
-        let mut stmt = self.conn.prepare_cached("INSERT INTO span_data (id, source_file_id, sample_id, hits, start_line, start_col, end_line, end_col) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")?;
-        span.id = Uuid::new_v4();
-
-        let _ = stmt.execute((
-            span.id,
-            span.source_file_id,
-            span.sample_id,
-            span.hits,
-            span.start_line,
-            span.start_col,
-            span.end_line,
-            span.end_col,
-        ))?;
+        span.assign_id();
+        <models::SpanData as Insertable<8>>::insert(&span, &self.conn)?;
         Ok(span)
     }
 
@@ -286,15 +241,7 @@ impl<'a> ReportBuilder<SqliteReport> for SqliteReportBuilderTx<'a> {
         &mut self,
         assoc: models::ContextAssoc,
     ) -> Result<models::ContextAssoc> {
-        let mut stmt = self.conn.prepare_cached("INSERT INTO context_assoc (context_id, sample_id, branch_id, method_id, span_id) VALUES (?1, ?2, ?3, ?4, ?5)")?;
-
-        let _ = stmt.execute((
-            assoc.context_id,
-            assoc.sample_id,
-            assoc.branch_id,
-            assoc.method_id,
-            assoc.span_id,
-        ))?;
+        <models::ContextAssoc as Insertable<5>>::insert(&assoc, &self.conn)?;
         Ok(assoc)
     }
 
@@ -339,6 +286,7 @@ mod tests {
     use rusqlite_migration::SchemaVersion;
     use serde_json::json;
     use tempfile::TempDir;
+    use uuid::Uuid;
 
     use super::*;
     use crate::report::Report;
