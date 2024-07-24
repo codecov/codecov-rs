@@ -119,6 +119,13 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
         self.transaction()?.insert_coverage_sample(sample)
     }
 
+    fn multi_insert_coverage_sample(
+        &mut self,
+        samples: Vec<&mut models::CoverageSample>,
+    ) -> Result<()> {
+        self.transaction()?.multi_insert_coverage_sample(samples)
+    }
+
     fn insert_branches_data(
         &mut self,
         branch: models::BranchesData,
@@ -126,19 +133,35 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
         self.transaction()?.insert_branches_data(branch)
     }
 
+    fn multi_insert_branches_data(
+        &mut self,
+        branches: Vec<&mut models::BranchesData>,
+    ) -> Result<()> {
+        self.transaction()?.multi_insert_branches_data(branches)
+    }
+
     fn insert_method_data(&mut self, method: models::MethodData) -> Result<models::MethodData> {
         self.transaction()?.insert_method_data(method)
+    }
+
+    fn multi_insert_method_data(&mut self, methods: Vec<&mut models::MethodData>) -> Result<()> {
+        self.transaction()?.multi_insert_method_data(methods)
     }
 
     fn insert_span_data(&mut self, span: models::SpanData) -> Result<models::SpanData> {
         self.transaction()?.insert_span_data(span)
     }
 
-    fn associate_context<'b>(
-        &mut self,
-        assoc: models::ContextAssoc,
-    ) -> Result<models::ContextAssoc> {
+    fn multi_insert_span_data(&mut self, spans: Vec<&mut models::SpanData>) -> Result<()> {
+        self.transaction()?.multi_insert_span_data(spans)
+    }
+
+    fn associate_context(&mut self, assoc: models::ContextAssoc) -> Result<models::ContextAssoc> {
         self.transaction()?.associate_context(assoc)
+    }
+
+    fn multi_associate_context(&mut self, assocs: Vec<&mut models::ContextAssoc>) -> Result<()> {
+        self.transaction()?.multi_associate_context(assocs)
     }
 
     fn insert_raw_upload(&mut self, raw_upload: models::RawUpload) -> Result<models::RawUpload> {
@@ -249,6 +272,20 @@ impl<'a> ReportBuilder<SqliteReport> for SqliteReportBuilderTx<'a> {
         Ok(sample)
     }
 
+    fn multi_insert_coverage_sample(
+        &mut self,
+        mut samples: Vec<&mut models::CoverageSample>,
+    ) -> Result<()> {
+        for sample in &mut samples {
+            sample.local_sample_id = self.coverage_sample_id_iterator.next().unwrap();
+        }
+        <models::CoverageSample as Insertable<8>>::multi_insert(
+            samples.iter().map(|v| &**v),
+            &self.conn,
+        )?;
+        Ok(())
+    }
+
     fn insert_branches_data(
         &mut self,
         mut branch: models::BranchesData,
@@ -259,11 +296,39 @@ impl<'a> ReportBuilder<SqliteReport> for SqliteReportBuilderTx<'a> {
         Ok(branch)
     }
 
+    fn multi_insert_branches_data(
+        &mut self,
+        mut branches: Vec<&mut models::BranchesData>,
+    ) -> Result<()> {
+        for branch in &mut branches {
+            branch.local_branch_id = self.branches_data_id_iterator.next().unwrap();
+        }
+        <models::BranchesData as Insertable<7>>::multi_insert(
+            branches.iter().map(|v| &**v),
+            &self.conn,
+        )?;
+        Ok(())
+    }
+
     fn insert_method_data(&mut self, mut method: models::MethodData) -> Result<models::MethodData> {
         // TODO handle error
         method.local_method_id = self.method_data_id_iterator.next().unwrap();
         <models::MethodData as Insertable<9>>::insert(&method, &self.conn)?;
         Ok(method)
+    }
+
+    fn multi_insert_method_data(
+        &mut self,
+        mut methods: Vec<&mut models::MethodData>,
+    ) -> Result<()> {
+        for method in &mut methods {
+            method.local_method_id = self.method_data_id_iterator.next().unwrap();
+        }
+        <models::MethodData as Insertable<9>>::multi_insert(
+            methods.iter().map(|v| &**v),
+            &self.conn,
+        )?;
+        Ok(())
     }
 
     fn insert_span_data(&mut self, mut span: models::SpanData) -> Result<models::SpanData> {
@@ -273,12 +338,25 @@ impl<'a> ReportBuilder<SqliteReport> for SqliteReportBuilderTx<'a> {
         Ok(span)
     }
 
-    fn associate_context<'b>(
-        &mut self,
-        assoc: models::ContextAssoc,
-    ) -> Result<models::ContextAssoc> {
+    fn multi_insert_span_data(&mut self, mut spans: Vec<&mut models::SpanData>) -> Result<()> {
+        for span in &mut spans {
+            span.local_span_id = self.span_data_id_iterator.next().unwrap();
+        }
+        <models::SpanData as Insertable<9>>::multi_insert(spans.iter().map(|v| &**v), &self.conn)?;
+        Ok(())
+    }
+
+    fn associate_context(&mut self, assoc: models::ContextAssoc) -> Result<models::ContextAssoc> {
         <models::ContextAssoc as Insertable<4>>::insert(&assoc, &self.conn)?;
         Ok(assoc)
+    }
+
+    fn multi_associate_context(&mut self, assocs: Vec<&mut models::ContextAssoc>) -> Result<()> {
+        <models::ContextAssoc as Insertable<4>>::multi_insert(
+            assocs.iter().map(|v| &**v),
+            &self.conn,
+        )?;
+        Ok(())
     }
 
     fn insert_raw_upload(
