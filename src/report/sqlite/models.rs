@@ -65,6 +65,51 @@ pub trait Insertable<const FIELD_COUNT: usize> {
 
         Ok(())
     }
+
+    fn multi_insert<'a, I>(mut models: I, conn: &rusqlite::Connection) -> Result<()>
+    where
+        I: Iterator<Item = &'a Self> + ExactSizeIterator,
+        Self: 'a,
+    {
+        let var_limit = conn.limit(rusqlite::limits::Limit::SQLITE_LIMIT_VARIABLE_NUMBER) as usize;
+        // If each model takes up `FIELD_COUNT` variables, we can fit `var_limit /
+        // FIELD_COUNT` complete models in each "page" of our query
+        let page_size = var_limit / FIELD_COUNT;
+
+        // Integer division tells us how many full pages there are. If there is a
+        // non-zero remainder, there is one final incomplete page.
+        let model_count = models.len();
+        let page_count = match (model_count / page_size, model_count % page_size) {
+            (page_count, 0) => page_count,
+            (page_count, _) => page_count + 1,
+        };
+
+        let (mut query, mut previous_page_size) = (String::new(), 0);
+        for _ in 0..page_count {
+            // If there are fewer than `page_size` pages left, the iterator will just take
+            // everything.
+            let page_iter = models.by_ref().take(page_size);
+
+            // We can reuse our query string if the current page is the same size as the
+            // last one. If not, we have to rebuild the query string.
+            let current_page_size = page_iter.len();
+            if current_page_size != previous_page_size {
+                query = format!(" {},", Self::INSERT_PLACEHOLDER).repeat(current_page_size);
+                query.insert_str(0, Self::INSERT_QUERY_PRELUDE);
+                // Remove trailing comma
+                query.pop();
+                previous_page_size = current_page_size;
+            }
+
+            let mut stmt = conn.prepare_cached(query.as_str())?;
+            let params = page_iter.flat_map(|model| model.param_bindings());
+            stmt.execute(rusqlite::params_from_iter(params))?;
+        }
+
+        conn.flush_prepared_statement_cache();
+
+        Ok(())
+    }
 }
 
 /// Can't implement foreign traits (`ToSql`/`FromSql`) on foreign types
@@ -524,6 +569,48 @@ mod tests {
                 assert!(false);
             }
         }
+    }
+
+    #[test]
+    fn test_test_model_multi_insert() {
+        let ctx = setup();
+
+        // We lower the limit to force the multi_insert pagination logic to kick in.
+        // We'll use 5 models, each with 2 variables, so we need 10 variables total.
+        // Setting the limit to 4 should wind up using multiple pages.
+        let _ = ctx
+            .report
+            .conn
+            .set_limit(rusqlite::limits::Limit::SQLITE_LIMIT_VARIABLE_NUMBER, 4);
+
+        let models_to_insert = vec![
+            TestModel {
+                id: 1,
+                data: "foo".to_string(),
+            },
+            TestModel {
+                id: 2,
+                data: "bar".to_string(),
+            },
+            TestModel {
+                id: 3,
+                data: "baz".to_string(),
+            },
+            TestModel {
+                id: 4,
+                data: "abc".to_string(),
+            },
+            TestModel {
+                id: 5,
+                data: "def".to_string(),
+            },
+        ];
+
+        <TestModel as Insertable<2>>::multi_insert(models_to_insert.iter(), &ctx.report.conn)
+            .unwrap();
+
+        let test_models = list_test_models(&ctx.report);
+        assert_eq!(test_models, models_to_insert);
     }
 
     #[test]
