@@ -158,6 +158,8 @@ pub struct CoverageDatapoint {
 /// each `LineSession`.
 #[derive(Debug, PartialEq)]
 pub struct ReportLine {
+    pub line_no: i64,
+
     /// An aggregated coverage status across all of the [`LineSession`]s in
     /// `sessions`.
     pub coverage: PyreportCoverage,
