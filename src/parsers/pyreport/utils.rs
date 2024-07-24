@@ -4,7 +4,8 @@ use crate::{
     report::{
         models,
         pyreport::types::{
-            Complexity, LineSession, MissingBranch, Partial, PyreportCoverage, ReportLine,
+            Complexity, CoverageDatapoint, LineSession, MissingBranch, Partial, PyreportCoverage,
+            ReportLine,
         },
         Report, ReportBuilder,
     },
@@ -49,6 +50,229 @@ fn format_pyreport_branch(branch: &MissingBranch) -> (models::BranchFormat, Stri
         MissingBranch::Line(line_no) => (models::BranchFormat::Line, line_no.to_string()),
     };
     (branch_format, branch_serialized)
+}
+
+struct LineSessionModels {
+    sample: models::CoverageSample,
+    branches: Option<Vec<models::BranchesData>>,
+    method: Option<models::MethodData>,
+    partials: Option<Vec<models::SpanData>>,
+    assocs: Vec<models::ContextAssoc>,
+}
+
+fn create_model_sets_for_line_session<R: Report, B: ReportBuilder<R>>(
+    line_session: &LineSession,
+    coverage_type: &models::CoverageType,
+    line_no: i64,
+    datapoint: Option<&CoverageDatapoint>,
+    ctx: &mut ParseCtx<R, B>,
+) -> Result<LineSessionModels> {
+    let source_file_id = ctx.report_json_files[&ctx.chunk.index];
+    let (hits, hit_branches, total_branches) = separate_pyreport_coverage(&line_session.coverage);
+    let raw_upload_id = ctx.report_json_sessions[&line_session.session_id];
+
+    let sample = models::CoverageSample {
+        source_file_id,
+        raw_upload_id,
+        line_no,
+        coverage_type: *coverage_type,
+        hits,
+        hit_branches,
+        total_branches,
+        ..Default::default()
+    };
+
+    let mut assocs = vec![];
+    if let Some(datapoint) = &datapoint {
+        for label in &datapoint.labels {
+            let label_context_id = ctx.labels_index[label];
+            assocs.push(models::ContextAssoc {
+                context_id: label_context_id,
+                ..Default::default()
+            });
+        }
+    }
+
+    let branches = if let Some(Some(missing_branches)) = &line_session.branches {
+        let mut branches = vec![];
+        for branch in missing_branches {
+            let (branch_format, branch_serialized) = format_pyreport_branch(branch);
+            branches.push(models::BranchesData {
+                source_file_id,
+                raw_upload_id,
+                hits: 0,
+                branch_format,
+                branch: branch_serialized,
+                ..Default::default()
+            });
+        }
+        Some(branches)
+    } else {
+        None
+    };
+
+    let method = if let Some(Some(complexity)) = &line_session.complexity {
+        let (covered, total) = separate_pyreport_complexity(complexity);
+        Some(models::MethodData {
+            source_file_id,
+            raw_upload_id,
+            line_no: Some(line_no),
+            hit_complexity_paths: covered,
+            total_complexity: total,
+            ..Default::default()
+        })
+    } else {
+        None
+    };
+
+    let partials = if let Some(Some(partials)) = &line_session.partials {
+        let mut span_models = vec![];
+        for Partial {
+            start_col,
+            end_col,
+            coverage,
+        } in partials
+        {
+            let hits = match coverage {
+                PyreportCoverage::HitCount(hits) => *hits as i64,
+                _ => 0,
+            };
+            span_models.push(models::SpanData {
+                source_file_id,
+                raw_upload_id,
+                hits,
+                start_line: Some(line_no),
+                start_col: start_col.map(|x| x as i64),
+                end_line: Some(line_no),
+                end_col: end_col.map(|x| x as i64),
+                ..Default::default()
+            });
+        }
+        Some(span_models)
+    } else {
+        None
+    };
+
+    Ok(LineSessionModels {
+        sample,
+        branches,
+        method,
+        partials,
+        assocs,
+    })
+}
+
+fn create_model_sets_for_report_line<R: Report, B: ReportBuilder<R>>(
+    report_line: &ReportLine,
+    ctx: &mut ParseCtx<R, B>,
+) -> Result<Vec<LineSessionModels>> {
+    let mut line_session_models = vec![];
+    for line_session in &report_line.sessions {
+        let datapoint = if let Some(Some(datapoints)) = &report_line.datapoints {
+            datapoints.get(&(line_session.session_id as u32))
+        } else {
+            None
+        };
+        line_session_models.push(create_model_sets_for_line_session(
+            line_session,
+            &report_line.coverage_type,
+            report_line.line_no,
+            datapoint,
+            ctx,
+        )?);
+    }
+    Ok(line_session_models)
+}
+
+pub fn save_report_lines<R: Report, B: ReportBuilder<R>>(
+    report_lines: &[ReportLine],
+    ctx: &mut ParseCtx<R, B>,
+) -> Result<()> {
+    let mut models: Vec<LineSessionModels> = report_lines
+        .iter()
+        .map(|line| create_model_sets_for_report_line(line, ctx))
+        .flat_map(|models| match models {
+            Ok(models) => models.into_iter().map(Ok).collect(),
+            Err(err) => vec![Err(err)],
+        })
+        .collect::<Result<Vec<LineSessionModels>>>()?;
+
+    ctx.db.report_builder.multi_insert_coverage_sample(
+        models
+            .iter_mut()
+            .map(|LineSessionModels { sample, .. }| sample)
+            .collect(),
+    )?;
+
+    ctx.db.report_builder.multi_associate_context(
+        models
+            .iter_mut()
+            .flat_map(|LineSessionModels { sample, assocs, .. }| {
+                for assoc in assocs.iter_mut() {
+                    assoc.local_sample_id = Some(sample.local_sample_id);
+                }
+                assocs
+            })
+            .collect(),
+    )?;
+
+    ctx.db.report_builder.multi_insert_branches_data(
+        models
+            .iter_mut()
+            .filter_map(
+                |LineSessionModels {
+                     sample, branches, ..
+                 }| {
+                    if let Some(branches) = branches {
+                        for branch in branches.iter_mut() {
+                            branch.local_sample_id = sample.local_sample_id;
+                        }
+                        Some(branches)
+                    } else {
+                        None
+                    }
+                },
+            )
+            .flatten()
+            .collect(),
+    )?;
+
+    ctx.db.report_builder.multi_insert_method_data(
+        models
+            .iter_mut()
+            .filter_map(|LineSessionModels { sample, method, .. }| {
+                if let Some(method) = method {
+                    method.local_sample_id = sample.local_sample_id;
+                    Some(method)
+                } else {
+                    None
+                }
+            })
+            .collect(),
+    )?;
+
+    ctx.db.report_builder.multi_insert_span_data(
+        models
+            .iter_mut()
+            .filter_map(
+                |LineSessionModels {
+                     sample, partials, ..
+                 }| {
+                    if let Some(partials) = partials {
+                        for span in partials.iter_mut() {
+                            span.local_sample_id = Some(sample.local_sample_id);
+                        }
+                        Some(partials)
+                    } else {
+                        None
+                    }
+                },
+            )
+            .flatten()
+            .collect(),
+    )?;
+
+    Ok(())
 }
 
 /// Each [`LineSession`] corresponds to one
