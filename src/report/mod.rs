@@ -25,7 +25,7 @@ pub trait Report {
         &self,
         file: &models::SourceFile,
     ) -> Result<Vec<models::CoverageSample>>;
-    fn get_details_for_upload(&self, upload: &models::Context) -> Result<models::UploadDetails>;
+    fn list_raw_uploads(&self) -> Result<Vec<models::RawUpload>>;
 
     /// Merges another report into this one. Does not modify the other report.
     fn merge(&mut self, other: &Self) -> Result<()>;
@@ -48,25 +48,30 @@ pub trait ReportBuilder<R: Report> {
     ) -> Result<models::Context>;
 
     /// Create a [`models::CoverageSample`] record and return it. The passed-in
-    /// model's `id` field is ignored and overwritten with a new UUIDv4.
+    /// model's `local_sample_id` field is ignored and overwritten with a value
+    /// that is unique among all `CoverageSample`s with the same
+    /// `raw_upload_id`.
     fn insert_coverage_sample(
         &mut self,
         sample: models::CoverageSample,
     ) -> Result<models::CoverageSample>;
 
     /// Create a [`models::BranchesData`] record and return it. The passed-in
-    /// model's `id` field is ignored and overwritten with a new UUIDv4.
+    /// model's `local_branch_id` field is ignored and overwritten with a value
+    /// that is unique among all `BranchesData`s with the same `raw_upload_id`.
     fn insert_branches_data(
         &mut self,
         branch: models::BranchesData,
     ) -> Result<models::BranchesData>;
 
     /// Create a [`models::MethodData`] record and return it. The passed-in
-    /// model's `id` field is ignored and overwritten with a new UUIDv4.
+    /// model's `local_method_id` field is ignored and overwritten with a value
+    /// that is unique among all `MethodData`s with the same `raw_upload_id`.
     fn insert_method_data(&mut self, method: models::MethodData) -> Result<models::MethodData>;
 
     /// Create a [`models::SpanData`] record and return it. The passed-in
-    /// model's `id` field is ignored and overwritten with a new UUIDv4.
+    /// model's `local_span_id` field is ignored and overwritten with a value
+    /// that is unique among all `SpanData`s with the same `raw_upload_id`.
     fn insert_span_data(&mut self, span: models::SpanData) -> Result<models::SpanData>;
 
     /// Create a [`models::ContextAssoc`] record that associates a
@@ -77,11 +82,9 @@ pub trait ReportBuilder<R: Report> {
         assoc: models::ContextAssoc,
     ) -> Result<models::ContextAssoc>;
 
-    /// Create a [`models::UploadDetails`] record and return it.
-    fn insert_upload_details(
-        &mut self,
-        upload_details: models::UploadDetails,
-    ) -> Result<models::UploadDetails>;
+    /// Create a [`models::RawUpload`] record and return it.
+    fn insert_raw_upload(&mut self, upload_details: models::RawUpload)
+        -> Result<models::RawUpload>;
 
     /// Consume `self` and return a [`Report`].
     fn build(self) -> Result<R>;

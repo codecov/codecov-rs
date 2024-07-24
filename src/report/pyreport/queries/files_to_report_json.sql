@@ -1,6 +1,7 @@
 with samples_categorized as (
 select
-  coverage_sample.id,
+  coverage_sample.raw_upload_id,
+  coverage_sample.local_sample_id,
   coverage_sample.source_file_id,
   coverage_sample.line_no,
   coverage_sample.coverage_type,
@@ -16,7 +17,8 @@ from
 left join
   method_data
 on
-  method_data.sample_id = coverage_sample.id
+  method_data.raw_upload_id = coverage_sample.raw_upload_id
+  and method_data.local_sample_id = coverage_sample.local_sample_id
 ),
 source_files_with_index as (
 select
@@ -59,17 +61,15 @@ group by
 ),
 session_indices as (
 select
-  cast(row_number() over (order by context.id) - 1 as text) as session_index,
-  context.id as context_id
+  cast(row_number() over (order by raw_upload.id) - 1 as text) as session_index,
+  raw_upload.id as raw_upload_id
 from
-  context
-where
-  context.context_type = 'Upload'
+  raw_upload
 ),
 file_session_totals as (
 select
   session_indices.session_index,
-  context.id,
+  session_indices.raw_upload_id,
   samples_categorized.source_file_id,
   count(*) as file_session_lines,
   sum(samples_categorized.hit) as file_session_hits,
@@ -80,19 +80,9 @@ select
 from
   samples_categorized
 left join
-  context_assoc
-on
-  context_assoc.sample_id = samples_categorized.id
-left join
-  context
-on
-  context.id = context_assoc.context_id
-left join
   session_indices
 on
-  session_indices.context_id = context.id
-where
-  context.context_type = 'Upload'
+  session_indices.raw_upload_id = samples_categorized.raw_upload_id
 group by
   1, 2, 3
 )
