@@ -64,6 +64,7 @@ fn save_line_session<R: Report, B: ReportBuilder<R>>(
     ctx: &mut ParseCtx<R, B>,
 ) -> Result<models::CoverageSample> {
     let file_id = ctx.report_json_files[&ctx.chunk.index];
+    let session_id = ctx.report_json_sessions[&line_session.session_id];
 
     // The chunks file crams three of our model fields into the same "coverage"
     // field. We have to separate them.
@@ -74,25 +75,13 @@ fn save_line_session<R: Report, B: ReportBuilder<R>>(
         .db
         .report_builder
         .insert_coverage_sample(models::CoverageSample {
+            raw_upload_id: session_id,
             source_file_id: file_id,
             line_no: ctx.chunk.current_line,
             coverage_type: *coverage_type,
             hits,
             hit_branches,
             total_branches,
-            ..Default::default()
-        })?;
-
-    // We already created a `Context` for each session when processing the report
-    // JSON. Get the `Context` ID for the current session and then associate it with
-    // our new `CoverageSample`.
-    let session_id = ctx.report_json_sessions[&line_session.session_id];
-    let _ = ctx
-        .db
-        .report_builder
-        .associate_context(models::ContextAssoc {
-            context_id: session_id,
-            sample_id: Some(coverage_sample.id),
             ..Default::default()
         })?;
 
@@ -104,8 +93,9 @@ fn save_line_session<R: Report, B: ReportBuilder<R>>(
                 .db
                 .report_builder
                 .insert_branches_data(models::BranchesData {
+                    raw_upload_id: session_id,
                     source_file_id: file_id,
-                    sample_id: coverage_sample.id,
+                    local_sample_id: coverage_sample.local_sample_id,
                     hits: 0, // Chunks file only records missing branches
                     branch_format,
                     branch: branch_serialized,
@@ -121,8 +111,9 @@ fn save_line_session<R: Report, B: ReportBuilder<R>>(
             .db
             .report_builder
             .insert_method_data(models::MethodData {
+                raw_upload_id: session_id,
                 source_file_id: file_id,
-                sample_id: Some(coverage_sample.id),
+                local_sample_id: coverage_sample.local_sample_id,
                 line_no: Some(ctx.chunk.current_line),
                 hit_complexity_paths: covered,
                 total_complexity: total,
@@ -143,8 +134,9 @@ fn save_line_session<R: Report, B: ReportBuilder<R>>(
                 _ => 0,
             };
             ctx.db.report_builder.insert_span_data(models::SpanData {
+                raw_upload_id: session_id,
                 source_file_id: file_id,
-                sample_id: Some(coverage_sample.id),
+                local_sample_id: Some(coverage_sample.local_sample_id),
                 hits,
                 start_line: Some(ctx.chunk.current_line),
                 start_col: start_col.map(|x| x as i64),
@@ -180,7 +172,8 @@ pub fn save_report_line<R: Report, B: ReportBuilder<R>>(
                         .report_builder
                         .associate_context(models::ContextAssoc {
                             context_id,
-                            sample_id: Some(coverage_sample.id),
+                            raw_upload_id: coverage_sample.raw_upload_id as i64,
+                            local_sample_id: Some(coverage_sample.local_sample_id),
                             ..Default::default()
                         })?;
                 }
@@ -279,46 +272,37 @@ mod tests {
         parse_ctx: &mut ParseCtx<MockReport, MockReportBuilder<MockReport>>,
         sequence: &mut mockall::Sequence,
     ) -> models::CoverageSample {
-        let session_context_id = parse_ctx.report_json_sessions[&line_session.session_id];
+        let raw_upload_id = parse_ctx.report_json_sessions[&line_session.session_id];
         let source_file_id = parse_ctx.report_json_files[&parse_ctx.chunk.index];
 
         let (hits, hit_branches, total_branches) =
             separate_pyreport_coverage(&line_session.coverage);
 
+        let line_no = parse_ctx.chunk.current_line;
+        let local_sample_id = rand::random();
         let inserted_coverage_sample = models::CoverageSample {
-            id: uuid::Uuid::new_v4(),
+            raw_upload_id,
+            local_sample_id,
             source_file_id,
-            line_no: parse_ctx.chunk.current_line,
+            line_no,
             coverage_type,
             hits,
             hit_branches,
             total_branches,
+            ..Default::default()
         };
         parse_ctx
             .db
             .report_builder
             .expect_insert_coverage_sample()
             .with(eq(models::CoverageSample {
-                id: uuid::Uuid::nil(),
+                local_sample_id: 0,
                 ..inserted_coverage_sample
             }))
             .return_once(move |mut sample| {
-                sample.id = inserted_coverage_sample.id;
+                sample.local_sample_id = local_sample_id;
                 Ok(sample)
             })
-            .times(1)
-            .in_sequence(sequence);
-
-        parse_ctx
-            .db
-            .report_builder
-            .expect_associate_context()
-            .with(eq(models::ContextAssoc {
-                context_id: session_context_id,
-                sample_id: Some(inserted_coverage_sample.id),
-                ..Default::default()
-            }))
-            .returning(|assoc| Ok(assoc))
             .times(1)
             .in_sequence(sequence);
 
@@ -330,15 +314,16 @@ mod tests {
                     .report_builder
                     .expect_insert_branches_data()
                     .with(eq(models::BranchesData {
+                        raw_upload_id,
                         source_file_id,
-                        sample_id: inserted_coverage_sample.id,
+                        local_sample_id,
                         hits: 0,
                         branch_format,
                         branch: branch_serialized,
                         ..Default::default()
                     }))
                     .return_once(move |mut branch| {
-                        branch.id = uuid::Uuid::new_v4();
+                        branch.local_branch_id = rand::random();
                         Ok(branch)
                     })
                     .times(1)
@@ -359,15 +344,16 @@ mod tests {
                 .report_builder
                 .expect_insert_method_data()
                 .with(eq(models::MethodData {
+                    raw_upload_id,
                     source_file_id,
-                    sample_id: Some(inserted_coverage_sample.id),
-                    line_no: Some(inserted_coverage_sample.line_no),
+                    local_sample_id,
+                    line_no: Some(line_no),
                     hit_complexity_paths: covered,
                     total_complexity: total,
                     ..Default::default()
                 }))
                 .return_once(move |mut method| {
-                    method.id = uuid::Uuid::new_v4();
+                    method.local_method_id = rand::random();
                     Ok(method)
                 })
                 .times(1)
@@ -396,17 +382,18 @@ mod tests {
                     .report_builder
                     .expect_insert_span_data()
                     .with(eq(models::SpanData {
+                        raw_upload_id,
                         source_file_id,
-                        sample_id: Some(inserted_coverage_sample.id),
+                        local_sample_id: Some(local_sample_id),
                         hits,
-                        start_line: Some(inserted_coverage_sample.line_no),
+                        start_line: Some(line_no),
                         start_col: start_col.map(|x| x as i64),
-                        end_line: Some(inserted_coverage_sample.line_no),
+                        end_line: Some(line_no),
                         end_col: end_col.map(|x| x as i64),
                         ..Default::default()
                     }))
                     .return_once(move |mut span| {
-                        span.id = uuid::Uuid::new_v4();
+                        span.local_span_id = rand::random();
                         Ok(span)
                     })
                     .times(1)
@@ -722,7 +709,8 @@ mod tests {
             .expect_associate_context()
             .with(eq(models::ContextAssoc {
                 context_id: 50,
-                sample_id: Some(inserted_sample.id),
+                raw_upload_id: inserted_sample.raw_upload_id,
+                local_sample_id: Some(inserted_sample.local_sample_id),
                 ..Default::default()
             }))
             .returning(|assoc| Ok(assoc))
@@ -733,7 +721,8 @@ mod tests {
             .expect_associate_context()
             .with(eq(models::ContextAssoc {
                 context_id: 51,
-                sample_id: Some(inserted_sample.id),
+                raw_upload_id: inserted_sample.raw_upload_id,
+                local_sample_id: Some(inserted_sample.local_sample_id),
                 ..Default::default()
             }))
             .returning(|assoc| Ok(assoc))
