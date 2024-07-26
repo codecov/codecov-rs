@@ -61,6 +61,7 @@ fn format_pyreport_branch(branch: &MissingBranch) -> (models::BranchFormat, Stri
 fn save_line_session<R: Report, B: ReportBuilder<R>>(
     line_session: &LineSession,
     coverage_type: &models::CoverageType,
+    line_no: i64,
     ctx: &mut ParseCtx<R, B>,
 ) -> Result<models::CoverageSample> {
     let file_id = ctx.report_json_files[&ctx.chunk.index];
@@ -77,7 +78,7 @@ fn save_line_session<R: Report, B: ReportBuilder<R>>(
         .insert_coverage_sample(models::CoverageSample {
             raw_upload_id: session_id,
             source_file_id: file_id,
-            line_no: ctx.chunk.current_line,
+            line_no,
             coverage_type: *coverage_type,
             hits,
             hit_branches,
@@ -159,7 +160,12 @@ pub fn save_report_line<R: Report, B: ReportBuilder<R>>(
 ) -> Result<()> {
     // Most of the data we save is at the `LineSession` level
     for line_session in &report_line.sessions {
-        let coverage_sample = save_line_session(line_session, &report_line.coverage_type, ctx)?;
+        let coverage_sample = save_line_session(
+            line_session,
+            &report_line.coverage_type,
+            report_line.line_no,
+            ctx,
+        )?;
 
         // If we have datapoints, and one of those datapoints is for this `LineSession`,
         // get its `Context` ID and associate it with our new `CoverageSample`.
@@ -431,7 +437,13 @@ mod tests {
             parse_ctx,
             &mut test_ctx.sequence,
         );
-        assert!(save_line_session(&input_session, &input_type, parse_ctx).is_ok());
+        assert!(save_line_session(
+            &input_session,
+            &input_type,
+            parse_ctx.chunk.current_line,
+            parse_ctx
+        )
+        .is_ok());
     }
 
     #[test]
@@ -471,7 +483,13 @@ mod tests {
             parse_ctx,
             &mut test_ctx.sequence,
         );
-        assert!(save_line_session(&input_session, &input_type, parse_ctx).is_ok());
+        assert!(save_line_session(
+            &input_session,
+            &input_type,
+            parse_ctx.chunk.current_line,
+            parse_ctx
+        )
+        .is_ok());
     }
 
     #[test]
@@ -495,7 +513,13 @@ mod tests {
             parse_ctx,
             &mut test_ctx.sequence,
         );
-        assert!(save_line_session(&input_session, &input_type, parse_ctx).is_ok());
+        assert!(save_line_session(
+            &input_session,
+            &input_type,
+            parse_ctx.chunk.current_line,
+            parse_ctx
+        )
+        .is_ok());
     }
 
     #[test]
@@ -519,7 +543,13 @@ mod tests {
             parse_ctx,
             &mut test_ctx.sequence,
         );
-        assert!(save_line_session(&input_session, &input_type, parse_ctx).is_ok());
+        assert!(save_line_session(
+            &input_session,
+            &input_type,
+            parse_ctx.chunk.current_line,
+            parse_ctx
+        )
+        .is_ok());
     }
 
     #[test]
@@ -546,7 +576,13 @@ mod tests {
             parse_ctx,
             &mut test_ctx.sequence,
         );
-        assert!(save_line_session(&input_session, &input_type, parse_ctx).is_ok());
+        assert!(save_line_session(
+            &input_session,
+            &input_type,
+            parse_ctx.chunk.current_line,
+            parse_ctx
+        )
+        .is_ok());
     }
 
     #[test]
@@ -573,7 +609,13 @@ mod tests {
             parse_ctx,
             &mut test_ctx.sequence,
         );
-        assert!(save_line_session(&input_session, &input_type, parse_ctx).is_ok());
+        assert!(save_line_session(
+            &input_session,
+            &input_type,
+            parse_ctx.chunk.current_line,
+            parse_ctx
+        )
+        .is_ok());
     }
 
     #[test]
@@ -603,7 +645,13 @@ mod tests {
             parse_ctx,
             &mut test_ctx.sequence,
         );
-        assert!(save_line_session(&input_session, &input_type, parse_ctx).is_ok());
+        assert!(save_line_session(
+            &input_session,
+            &input_type,
+            parse_ctx.chunk.current_line,
+            parse_ctx
+        )
+        .is_ok());
     }
 
     #[test]
@@ -633,7 +681,13 @@ mod tests {
             parse_ctx,
             &mut test_ctx.sequence,
         );
-        assert!(save_line_session(&input_session, &input_type, parse_ctx).is_ok());
+        assert!(save_line_session(
+            &input_session,
+            &input_type,
+            parse_ctx.chunk.current_line,
+            parse_ctx
+        )
+        .is_ok());
     }
 
     #[test]
@@ -660,7 +714,13 @@ mod tests {
             parse_ctx,
             &mut test_ctx.sequence,
         );
-        assert!(save_line_session(&input_session, &input_type, parse_ctx).is_ok());
+        assert!(save_line_session(
+            &input_session,
+            &input_type,
+            parse_ctx.chunk.current_line,
+            parse_ctx
+        )
+        .is_ok());
     }
 
     #[test]
@@ -689,6 +749,7 @@ mod tests {
         }
 
         let report_line = ReportLine {
+            line_no: 1,
             coverage,
             sessions,
             coverage_type,
@@ -772,6 +833,7 @@ mod tests {
         }
 
         let report_line = ReportLine {
+            line_no: 1,
             coverage,
             sessions,
             coverage_type,
@@ -811,6 +873,7 @@ mod tests {
         }
 
         let report_line = ReportLine {
+            line_no: 1,
             coverage,
             sessions,
             coverage_type,
@@ -867,6 +930,7 @@ mod tests {
         }
 
         let report_line = ReportLine {
+            line_no: 1,
             coverage,
             sessions,
             coverage_type,
@@ -906,6 +970,7 @@ mod tests {
         }
 
         let report_line = ReportLine {
+            line_no: 1,
             coverage,
             sessions,
             coverage_type,
@@ -965,6 +1030,7 @@ mod tests {
         }
 
         let report_line = ReportLine {
+            line_no: 1,
             coverage,
             sessions,
             coverage_type,

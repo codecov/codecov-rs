@@ -2,7 +2,7 @@ use std::{collections::HashMap, fmt, fmt::Debug};
 
 use winnow::{
     combinator::{
-        alt, delimited, eof, opt, peek, preceded, separated, separated_pair, seq, terminated,
+        alt, delimited, empty, eof, opt, peek, preceded, separated, separated_pair, seq, terminated,
     },
     error::{ContextError, ErrMode, ErrorKind, FromExternalError},
     stream::Stream,
@@ -366,7 +366,9 @@ pub fn report_line<'a, S: StrStream, R: Report, B: ReportBuilder<R>>(
 where
     S: Stream<Slice = &'a str>,
 {
+    let line_no = buf.state.chunk.current_line;
     let mut report_line = seq! {ReportLine {
+        line_no: empty.value(line_no),
         _: '[',
         coverage: coverage,
         _: (ws, ',', ws),
@@ -1227,6 +1229,7 @@ mod tests {
             (
                 "[1, null, [[0, 1]]]",
                 Ok(ReportLine {
+                    line_no: 0,
                     coverage: PyreportCoverage::HitCount(1),
                     coverage_type: CoverageType::Line,
                     sessions: vec![LineSession {
@@ -1244,6 +1247,7 @@ mod tests {
             (
                 "[1, null, [[0, 1], [1, 1]]]",
                 Ok(ReportLine {
+                    line_no: 0,
                     coverage: PyreportCoverage::HitCount(1),
                     coverage_type: CoverageType::Line,
                     sessions: vec![
@@ -1270,6 +1274,7 @@ mod tests {
             (
                 "[1, null, [[0, 1]], null, 3]",
                 Ok(ReportLine {
+                    line_no: 0,
                     coverage: PyreportCoverage::HitCount(1),
                     coverage_type: CoverageType::Line,
                     sessions: vec![LineSession {
@@ -1287,6 +1292,7 @@ mod tests {
             (
                 "[1, null, [[0, 1]], null, null, []]",
                 Ok(ReportLine {
+                    line_no: 0,
                     coverage: PyreportCoverage::HitCount(1),
                     coverage_type: CoverageType::Line,
                     sessions: vec![LineSession {
@@ -1304,6 +1310,7 @@ mod tests {
             (
                 "[1, null, [[0, 1]], null, null, [[0, 1, null, [\"test_case\"]]]]",
                 Ok(ReportLine {
+                    line_no: 0,
                     coverage: PyreportCoverage::HitCount(1),
                     coverage_type: CoverageType::Line,
                     sessions: vec![LineSession {
@@ -1329,6 +1336,7 @@ mod tests {
             (
                 "[\"2/2\", \"b\", [[0, \"2/2\"]], null, null, [[0, \"2/2\", \"b\", [\"test_case\"]]]]",
                 Ok(ReportLine {
+                    line_no: 0,
                     coverage: PyreportCoverage::BranchesTaken{covered: 2, total: 2},
                     coverage_type: CoverageType::Branch,
                     sessions: vec![LineSession {
@@ -1354,6 +1362,7 @@ mod tests {
             (
                 "[1, \"m\", [[0, 1]], null, null, [[0, 1, \"m\", [\"test_case\"]]]]",
                 Ok(ReportLine {
+                    line_no: 0,
                     coverage: PyreportCoverage::HitCount(1),
                     coverage_type: CoverageType::Method,
                     sessions: vec![LineSession {
