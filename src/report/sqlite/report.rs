@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 use super::open_database;
 use crate::{
@@ -54,6 +54,45 @@ impl Report for SqliteReport {
         Ok(samples)
     }
 
+    fn list_branches_for_sample(
+        &self,
+        sample: &models::CoverageSample,
+    ) -> Result<Vec<models::BranchesData>> {
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT branches_data.local_branch_id, branches_data.raw_upload_id, branches_data.source_file_id, branches_data.local_sample_id, branches_data.branch, branches_data.branch_format, branches_data.hits FROM branches_data WHERE branches_data.local_sample_id = ?1")?;
+        let branches = stmt
+            .query_map([sample.local_sample_id], |row| row.try_into())?
+            .collect::<rusqlite::Result<Vec<models::BranchesData>>>()?;
+        Ok(branches)
+    }
+
+    fn get_method_for_sample(
+        &self,
+        sample: &models::CoverageSample,
+    ) -> Result<Option<models::MethodData>> {
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT method_data.local_method_id, method_data.raw_upload_id, method_data.source_file_id, method_data.local_sample_id, method_data.line_no, method_data.hit_branches, method_data.total_branches, method_data.hit_complexity_paths, method_data.total_complexity FROM method_data WHERE method_data.local_sample_id = ?1")?;
+
+        Ok(stmt
+            .query_row([sample.local_sample_id], |row| row.try_into())
+            .optional()?)
+    }
+
+    fn list_spans_for_sample(
+        &self,
+        sample: &models::CoverageSample,
+    ) -> Result<Vec<models::SpanData>> {
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT span_data.local_span_id, span_data.raw_upload_id, span_data.source_file_id, span_data.local_sample_id, span_data.hits, span_data.start_line, span_data.start_col, span_data.end_line, span_data.end_col FROM span_data WHERE span_data.local_sample_id = ?1")?;
+        let span = stmt
+            .query_map([sample.local_sample_id], |row| row.try_into())?
+            .collect::<rusqlite::Result<Vec<models::SpanData>>>()?;
+        Ok(span)
+    }
+
     // TODO implement for real, just using for integration tests
     fn list_contexts_for_sample(
         &self,
@@ -61,7 +100,7 @@ impl Report for SqliteReport {
     ) -> Result<Vec<models::Context>> {
         let mut stmt = self
             .conn
-            .prepare_cached("SELECT context.id, context.context_type, context.name FROM context INNER JOIN context_assoc ON context.id = context_assoc.context_id WHERE context_assoc.sample_id = ?1")?;
+            .prepare_cached("SELECT context.id, context.context_type, context.name FROM context INNER JOIN context_assoc ON context.id = context_assoc.context_id WHERE context_assoc.local_sample_id = ?1")?;
         let contexts = stmt
             .query_map([sample.local_sample_id], |row| row.try_into())?
             .collect::<rusqlite::Result<Vec<models::Context>>>()?;
