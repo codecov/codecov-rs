@@ -55,6 +55,14 @@ pub struct SqliteReportBuilder {
 impl SqliteReportBuilder {
     fn new_with_rng(filename: PathBuf, rng: StdRng) -> Result<SqliteReportBuilder> {
         let conn = open_database(&filename)?;
+        // Trust the operating system to perform writes successfully
+        conn.pragma_update(None, "synchronous", "OFF")?;
+
+        // Don't keep a transaction journal; if we need to roll back, it's unrecoverable
+        conn.pragma_update(None, "journal_mode", "OFF")?;
+
+        // Allow SQLite to hold more database disk pages in memory
+        conn.pragma_update(None, "cache_size", "-200000")?;
         Ok(SqliteReportBuilder {
             filename,
             conn,
