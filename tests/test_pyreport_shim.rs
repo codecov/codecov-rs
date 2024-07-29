@@ -15,6 +15,8 @@ use codecov_rs::{
         models, pyreport::ToPyreport, Report, ReportBuilder, SqliteReport, SqliteReportBuilder,
     },
 };
+use rand::{rngs::StdRng, Rng, SeedableRng};
+use serde_json::json;
 use tempfile::TempDir;
 use winnow::Parser;
 
@@ -44,8 +46,13 @@ fn hash_id(key: &str) -> i64 {
 fn test_parse_report_json() {
     let input = common::read_sample_file(Path::new("codecov-rs-reports-json-d2a9ba1.txt"));
 
+    let rng_seed = 5;
+    let mut rng = StdRng::seed_from_u64(rng_seed);
+
     let test_ctx = setup();
-    let parse_ctx = ReportBuilderCtx::new(SqliteReportBuilder::new(test_ctx.db_file).unwrap());
+    let parse_ctx = ReportBuilderCtx::new(
+        SqliteReportBuilder::new_with_seed(test_ctx.db_file, rng_seed).unwrap(),
+    );
     let mut buf = ReportJsonStream {
         input: &input,
         state: parse_ctx,
@@ -66,12 +73,21 @@ fn test_parse_report_json() {
         },
     ];
 
-    let expected_name = "[1704827412] codecov-rs CI: https://github.com/codecov/codecov-rs/actions/runs/7465738121 (0)";
-    let expected_sessions = vec![models::Context {
-        id: hash_id(expected_name),
-        context_type: models::ContextType::Upload,
-        name: expected_name.to_string(),
-    }];
+    let expected_session = models::RawUpload {
+        id: rng.gen(),
+        timestamp: Some(1704827412),
+        raw_upload_url: Some("v4/raw/2024-01-09/BD18D96000B80FA280C411B0081460E1/d2a9ba133c9b30468d97e7fad1462728571ad699/065067fe-7677-4bd8-93b2-0a8d0b879f78/340c0c0b-a955-46a0-9de9-3a9b5f2e81e2.txt".to_string()),
+        flags: Some(json!([])),
+        provider: None,
+        build: None,
+        name: None,
+        job_name: Some("codecov-rs CI".to_string()),
+        ci_run_url: Some("https://github.com/codecov/codecov-rs/actions/runs/7465738121".to_string()),
+        state: None,
+        env: None,
+        session_type: Some("uploaded".to_string()),
+        session_extras: Some(json!({})),
+    };
 
     let expected_json_files = HashMap::from([
         (0, expected_files[0].id),
@@ -79,7 +95,7 @@ fn test_parse_report_json() {
         (2, expected_files[2].id),
     ]);
 
-    let expected_json_sessions = HashMap::from([(0, expected_sessions[0].id)]);
+    let expected_json_sessions = HashMap::from([(0, expected_session.id)]);
 
     let (actual_files, actual_sessions) = report_json::parse_report_json
         .parse_next(&mut buf)
@@ -93,15 +109,17 @@ fn test_parse_report_json() {
     assert_eq!(files, expected_files);
 
     let contexts = report.list_contexts().unwrap();
-    assert_eq!(contexts.len(), 1);
-    assert_eq!(contexts[0].context_type, models::ContextType::Upload);
-    assert_eq!(contexts[0].name, expected_name);
+    assert!(contexts.is_empty());
+
+    let uploads = report.list_raw_uploads().unwrap();
+    assert_eq!(uploads, vec![expected_session]);
 }
 
 #[test]
 fn test_parse_chunks_file() {
     let input = common::read_sample_file(Path::new("codecov-rs-chunks-d2a9ba1.txt"));
     let test_ctx = setup();
+
     let mut report_builder = SqliteReportBuilder::new(test_ctx.db_file).unwrap();
 
     // Pretend `parse_report_json` has already run
@@ -121,7 +139,7 @@ fn test_parse_chunks_file() {
     // Pretend `parse_report_json` has already run
     let mut report_json_sessions = HashMap::new();
     let session = report_builder
-        .insert_context(models::ContextType::Upload, "codecov-rs CI")
+        .insert_raw_upload(Default::default())
         .unwrap();
     report_json_sessions.insert(0, session.id);
 
@@ -142,17 +160,20 @@ fn test_parse_chunks_file() {
         .expect("Failed to parse");
 
     // Helper function for creating our expected values
-    fn make_sample(source_file_id: i64, line_no: i64, hits: i64) -> models::CoverageSample {
-        models::CoverageSample {
-            id: uuid::Uuid::nil(), // Ignored
-            source_file_id,
-            line_no,
-            coverage_type: models::CoverageType::Line,
-            hits: Some(hits),
-            hit_branches: None,
-            total_branches: None,
-        }
-    }
+    let mut coverage_sample_id_iterator = 0..;
+    let mut make_sample =
+        |source_file_id: i64, line_no: i64, hits: i64| -> models::CoverageSample {
+            models::CoverageSample {
+                local_sample_id: coverage_sample_id_iterator.next().unwrap(),
+                raw_upload_id: session.id,
+                source_file_id,
+                line_no,
+                coverage_type: models::CoverageType::Line,
+                hits: Some(hits),
+                hit_branches: None,
+                total_branches: None,
+            }
+        };
     // (start_line, end_line, hits)
     let covered_lines: [Vec<(i64, i64, i64)>; 3] = [
         vec![
@@ -195,21 +216,13 @@ fn test_parse_chunks_file() {
     let actual_coverage_samples = report
         .list_coverage_samples()
         .expect("Failed to list coverage samples");
-    let actual_contexts = report.list_contexts().expect("Failed to list contexts");
     assert_eq!(
         actual_coverage_samples.len(),
         expected_coverage_samples.len()
     );
     for i in 0..actual_coverage_samples.len() {
-        expected_coverage_samples[i].id = actual_coverage_samples[i].id;
+        expected_coverage_samples[i].local_sample_id = actual_coverage_samples[i].local_sample_id;
         assert_eq!(actual_coverage_samples[i], expected_coverage_samples[i]);
-
-        assert_eq!(
-            report
-                .list_contexts_for_sample(&actual_coverage_samples[i])
-                .unwrap(),
-            actual_contexts
-        );
     }
 }
 
@@ -222,8 +235,32 @@ fn test_parse_pyreport() {
         .expect("Failed to open chunks file");
     let test_ctx = setup();
 
-    let report = pyreport::parse_pyreport(&report_json_file, &chunks_file, test_ctx.db_file)
-        .expect("Failed to parse pyreport");
+    let rng_seed = 5;
+    let mut rng = StdRng::seed_from_u64(rng_seed);
+
+    let report = pyreport::parse_pyreport_with_seed(
+        &report_json_file,
+        &chunks_file,
+        test_ctx.db_file,
+        rng_seed,
+    )
+    .expect("Failed to parse pyreport");
+
+    let expected_session = models::RawUpload {
+        id: rng.gen(),
+        timestamp: Some(1704827412),
+        raw_upload_url: Some("v4/raw/2024-01-09/BD18D96000B80FA280C411B0081460E1/d2a9ba133c9b30468d97e7fad1462728571ad699/065067fe-7677-4bd8-93b2-0a8d0b879f78/340c0c0b-a955-46a0-9de9-3a9b5f2e81e2.txt".to_string()),
+        flags: Some(json!([])),
+        provider: None,
+        build: None,
+        name: None,
+        job_name: Some("codecov-rs CI".to_string()),
+        ci_run_url: Some("https://github.com/codecov/codecov-rs/actions/runs/7465738121".to_string()),
+        state: None,
+        env: None,
+        session_type: Some("uploaded".to_string()),
+        session_extras: Some(json!({})),
+    };
 
     let expected_files = vec![
         models::SourceFile {
@@ -240,25 +277,22 @@ fn test_parse_pyreport() {
         },
     ];
 
-    let expected_name = "[1704827412] codecov-rs CI: https://github.com/codecov/codecov-rs/actions/runs/7465738121 (0)";
-    let expected_sessions = vec![models::Context {
-        id: hash_id(expected_name),
-        context_type: models::ContextType::Upload,
-        name: expected_name.to_string(),
-    }];
-
     // Helper function for creating our expected values
-    fn make_sample(source_file_id: i64, line_no: i64, hits: i64) -> models::CoverageSample {
-        models::CoverageSample {
-            id: uuid::Uuid::nil(), // Ignored
-            source_file_id,
-            line_no,
-            coverage_type: models::CoverageType::Line,
-            hits: Some(hits),
-            hit_branches: None,
-            total_branches: None,
-        }
-    }
+    let mut coverage_sample_id_iterator = 0..;
+    let mut make_sample =
+        |source_file_id: i64, line_no: i64, hits: i64| -> models::CoverageSample {
+            models::CoverageSample {
+                local_sample_id: coverage_sample_id_iterator.next().unwrap(),
+                raw_upload_id: expected_session.id,
+                source_file_id,
+                line_no,
+                coverage_type: models::CoverageType::Line,
+                hits: Some(hits),
+                hit_branches: None,
+                total_branches: None,
+            }
+        };
+
     // (start_line, end_line, hits)
     let covered_lines: [Vec<(i64, i64, i64)>; 3] = [
         vec![
@@ -300,23 +334,13 @@ fn test_parse_pyreport() {
     let actual_coverage_samples = report
         .list_coverage_samples()
         .expect("Failed to list coverage samples");
-    let actual_contexts = report.list_contexts().expect("Failed to list contexts");
-    assert_eq!(actual_contexts, expected_sessions);
-    assert_eq!(
-        actual_coverage_samples.len(),
-        expected_coverage_samples.len()
-    );
-    for i in 0..actual_coverage_samples.len() {
-        expected_coverage_samples[i].id = actual_coverage_samples[i].id;
-        assert_eq!(actual_coverage_samples[i], expected_coverage_samples[i]);
+    assert_eq!(actual_coverage_samples, expected_coverage_samples);
 
-        assert_eq!(
-            report
-                .list_contexts_for_sample(&actual_coverage_samples[i])
-                .unwrap(),
-            actual_contexts
-        );
-    }
+    let contexts = report.list_contexts().unwrap();
+    assert!(contexts.is_empty());
+
+    let uploads = report.list_raw_uploads().unwrap();
+    assert_eq!(uploads, vec![expected_session]);
 }
 
 #[test]

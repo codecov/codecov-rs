@@ -1,9 +1,12 @@
-use std::path::{Path, PathBuf};
+use std::{
+    ops::RangeFrom,
+    path::{Path, PathBuf},
+};
 
+use rand::{rngs::StdRng, Rng, SeedableRng};
 use rusqlite::{Connection, Transaction};
-use uuid::Uuid;
 
-use super::{open_database, SqliteReport};
+use super::{models::Insertable, open_database, SqliteReport};
 use crate::{
     error::{CodecovError, Result},
     report::{models, ReportBuilder},
@@ -17,6 +20,9 @@ use crate::{
 /// their `conn` member mutably borrows the SQLite database and prevents
 /// `build()` from moving it into a `SqliteReport`.
 pub struct SqliteReportBuilderTx<'a> {
+    id_sequence: &'a mut RangeFrom<i64>,
+    rng: &'a mut StdRng,
+
     pub filename: &'a Path,
     pub conn: Transaction<'a>,
 }
@@ -38,12 +44,31 @@ impl<'a> SqliteReportBuilderTx<'a> {
 pub struct SqliteReportBuilder {
     pub filename: PathBuf,
     pub conn: Connection,
+
+    /// A single sequence is shared for [`CoverageSample`], [`BranchesData`],
+    /// [`MethodData`], and [`SpanData`].
+    id_sequence: RangeFrom<i64>,
+
+    rng: StdRng,
 }
 
 impl SqliteReportBuilder {
-    pub fn new(filename: PathBuf) -> Result<SqliteReportBuilder> {
+    fn new_with_rng(filename: PathBuf, rng: StdRng) -> Result<SqliteReportBuilder> {
         let conn = open_database(&filename)?;
-        Ok(SqliteReportBuilder { filename, conn })
+        Ok(SqliteReportBuilder {
+            filename,
+            conn,
+            id_sequence: 0..,
+            rng,
+        })
+    }
+
+    pub fn new_with_seed(filename: PathBuf, seed: u64) -> Result<SqliteReportBuilder> {
+        Self::new_with_rng(filename, StdRng::seed_from_u64(seed))
+    }
+
+    pub fn new(filename: PathBuf) -> Result<SqliteReportBuilder> {
+        Self::new_with_rng(filename, StdRng::from_entropy())
     }
 
     /// Create a [`SqliteReportBuilderTx`] with a [`rusqlite::Transaction`] that
@@ -55,6 +80,8 @@ impl SqliteReportBuilder {
         let mut builder_tx = SqliteReportBuilderTx {
             filename: &self.filename,
             conn: self.conn.transaction()?,
+            id_sequence: &mut self.id_sequence,
+            rng: &mut self.rng,
         };
         builder_tx
             .conn
@@ -83,6 +110,13 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
         self.transaction()?.insert_coverage_sample(sample)
     }
 
+    fn multi_insert_coverage_sample(
+        &mut self,
+        samples: Vec<&mut models::CoverageSample>,
+    ) -> Result<()> {
+        self.transaction()?.multi_insert_coverage_sample(samples)
+    }
+
     fn insert_branches_data(
         &mut self,
         branch: models::BranchesData,
@@ -90,26 +124,39 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
         self.transaction()?.insert_branches_data(branch)
     }
 
+    fn multi_insert_branches_data(
+        &mut self,
+        branches: Vec<&mut models::BranchesData>,
+    ) -> Result<()> {
+        self.transaction()?.multi_insert_branches_data(branches)
+    }
+
     fn insert_method_data(&mut self, method: models::MethodData) -> Result<models::MethodData> {
         self.transaction()?.insert_method_data(method)
+    }
+
+    fn multi_insert_method_data(&mut self, methods: Vec<&mut models::MethodData>) -> Result<()> {
+        self.transaction()?.multi_insert_method_data(methods)
     }
 
     fn insert_span_data(&mut self, span: models::SpanData) -> Result<models::SpanData> {
         self.transaction()?.insert_span_data(span)
     }
 
-    fn associate_context<'b>(
-        &mut self,
-        assoc: models::ContextAssoc,
-    ) -> Result<models::ContextAssoc> {
+    fn multi_insert_span_data(&mut self, spans: Vec<&mut models::SpanData>) -> Result<()> {
+        self.transaction()?.multi_insert_span_data(spans)
+    }
+
+    fn associate_context(&mut self, assoc: models::ContextAssoc) -> Result<models::ContextAssoc> {
         self.transaction()?.associate_context(assoc)
     }
 
-    fn insert_upload_details(
-        &mut self,
-        upload_details: models::UploadDetails,
-    ) -> Result<models::UploadDetails> {
-        self.transaction()?.insert_upload_details(upload_details)
+    fn multi_associate_context(&mut self, assocs: Vec<&mut models::ContextAssoc>) -> Result<()> {
+        self.transaction()?.multi_associate_context(assocs)
+    }
+
+    fn insert_raw_upload(&mut self, raw_upload: models::RawUpload) -> Result<models::RawUpload> {
+        self.transaction()?.insert_raw_upload(raw_upload)
     }
 
     /// Consumes this builder and returns a [`SqliteReport`].
@@ -184,15 +231,12 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
 
 impl<'a> ReportBuilder<SqliteReport> for SqliteReportBuilderTx<'a> {
     fn insert_file(&mut self, path: String) -> Result<models::SourceFile> {
-        let mut stmt = self.conn.prepare_cached(
-            "INSERT INTO source_file (id, path) VALUES (?1, ?2) RETURNING id, path",
-        )?;
-
-        Ok(
-            stmt.query_row((seahash::hash(path.as_bytes()) as i64, path), |row| {
-                row.try_into()
-            })?,
-        )
+        let model = models::SourceFile {
+            id: seahash::hash(path.as_bytes()) as i64,
+            path,
+        };
+        <models::SourceFile as Insertable<2>>::insert(&model, &self.conn)?;
+        Ok(model)
     }
 
     fn insert_context(
@@ -200,129 +244,136 @@ impl<'a> ReportBuilder<SqliteReport> for SqliteReportBuilderTx<'a> {
         context_type: models::ContextType,
         name: &str,
     ) -> Result<models::Context> {
-        let mut stmt = self.conn.prepare_cached("INSERT INTO context (id, context_type, name) VALUES (?1, ?2, ?3) RETURNING id, context_type, name")?;
-        Ok(stmt.query_row(
-            (
-                seahash::hash(name.as_bytes()) as i64,
-                context_type.to_string(),
-                name,
-            ),
-            |row| row.try_into(),
-        )?)
+        let model = models::Context {
+            id: seahash::hash(name.as_bytes()) as i64,
+            context_type,
+            name: name.to_string(),
+        };
+        <models::Context as Insertable<3>>::insert(&model, &self.conn)?;
+        Ok(model)
     }
 
     fn insert_coverage_sample(
         &mut self,
         mut sample: models::CoverageSample,
     ) -> Result<models::CoverageSample> {
-        let mut stmt = self.conn.prepare_cached("INSERT INTO coverage_sample (id, source_file_id, line_no, coverage_type, hits, hit_branches, total_branches) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")?;
-        sample.id = Uuid::new_v4();
-        let _ = stmt.execute((
-            sample.id,
-            sample.source_file_id,
-            sample.line_no,
-            sample.coverage_type,
-            sample.hits,
-            sample.hit_branches,
-            sample.total_branches,
-        ))?;
-
+        // TODO handle error
+        sample.local_sample_id = self.id_sequence.next().unwrap();
+        <models::CoverageSample as Insertable<8>>::insert(&sample, &self.conn)?;
         Ok(sample)
+    }
+
+    fn multi_insert_coverage_sample(
+        &mut self,
+        mut samples: Vec<&mut models::CoverageSample>,
+    ) -> Result<()> {
+        for sample in &mut samples {
+            sample.local_sample_id = self.id_sequence.next().unwrap();
+        }
+        <models::CoverageSample as Insertable<8>>::multi_insert(
+            samples.iter().map(|v| &**v),
+            &self.conn,
+        )?;
+        Ok(())
     }
 
     fn insert_branches_data(
         &mut self,
         mut branch: models::BranchesData,
     ) -> Result<models::BranchesData> {
-        let mut stmt = self.conn.prepare_cached("INSERT INTO branches_data (id, source_file_id, sample_id, hits, branch_format, branch) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
-
-        branch.id = Uuid::new_v4();
-        let _ = stmt.execute((
-            branch.id,
-            branch.source_file_id,
-            branch.sample_id,
-            branch.hits,
-            branch.branch_format,
-            &branch.branch,
-        ))?;
+        // TODO handle error
+        branch.local_branch_id = self.id_sequence.next().unwrap();
+        <models::BranchesData as Insertable<7>>::insert(&branch, &self.conn)?;
         Ok(branch)
     }
 
-    fn insert_method_data(&mut self, mut method: models::MethodData) -> Result<models::MethodData> {
-        let mut stmt = self.conn.prepare_cached("INSERT INTO method_data (id, source_file_id, sample_id, line_no, hit_branches, total_branches, hit_complexity_paths, total_complexity) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")?;
-        method.id = Uuid::new_v4();
+    fn multi_insert_branches_data(
+        &mut self,
+        mut branches: Vec<&mut models::BranchesData>,
+    ) -> Result<()> {
+        for branch in &mut branches {
+            branch.local_branch_id = self.id_sequence.next().unwrap();
+        }
+        <models::BranchesData as Insertable<7>>::multi_insert(
+            branches.iter().map(|v| &**v),
+            &self.conn,
+        )?;
+        Ok(())
+    }
 
-        let _ = stmt.execute((
-            method.id,
-            method.source_file_id,
-            method.sample_id,
-            method.line_no,
-            method.hit_branches,
-            method.total_branches,
-            method.hit_complexity_paths,
-            method.total_complexity,
-        ))?;
+    fn insert_method_data(&mut self, mut method: models::MethodData) -> Result<models::MethodData> {
+        // TODO handle error
+        method.local_method_id = self.id_sequence.next().unwrap();
+        <models::MethodData as Insertable<9>>::insert(&method, &self.conn)?;
         Ok(method)
     }
 
-    fn insert_span_data(&mut self, mut span: models::SpanData) -> Result<models::SpanData> {
-        let mut stmt = self.conn.prepare_cached("INSERT INTO span_data (id, source_file_id, sample_id, hits, start_line, start_col, end_line, end_col) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")?;
-        span.id = Uuid::new_v4();
+    fn multi_insert_method_data(
+        &mut self,
+        mut methods: Vec<&mut models::MethodData>,
+    ) -> Result<()> {
+        for method in &mut methods {
+            method.local_method_id = self.id_sequence.next().unwrap();
+        }
+        <models::MethodData as Insertable<9>>::multi_insert(
+            methods.iter().map(|v| &**v),
+            &self.conn,
+        )?;
+        Ok(())
+    }
 
-        let _ = stmt.execute((
-            span.id,
-            span.source_file_id,
-            span.sample_id,
-            span.hits,
-            span.start_line,
-            span.start_col,
-            span.end_line,
-            span.end_col,
-        ))?;
+    fn insert_span_data(&mut self, mut span: models::SpanData) -> Result<models::SpanData> {
+        // TODO handle error
+        span.local_span_id = self.id_sequence.next().unwrap();
+        <models::SpanData as Insertable<9>>::insert(&span, &self.conn)?;
         Ok(span)
     }
 
-    fn associate_context<'b>(
-        &mut self,
-        assoc: models::ContextAssoc,
-    ) -> Result<models::ContextAssoc> {
-        let mut stmt = self.conn.prepare_cached("INSERT INTO context_assoc (context_id, sample_id, branch_id, method_id, span_id) VALUES (?1, ?2, ?3, ?4, ?5)")?;
+    fn multi_insert_span_data(&mut self, mut spans: Vec<&mut models::SpanData>) -> Result<()> {
+        for span in &mut spans {
+            span.local_span_id = self.id_sequence.next().unwrap();
+        }
+        <models::SpanData as Insertable<9>>::multi_insert(spans.iter().map(|v| &**v), &self.conn)?;
+        Ok(())
+    }
 
-        let _ = stmt.execute((
-            assoc.context_id,
-            assoc.sample_id,
-            assoc.branch_id,
-            assoc.method_id,
-            assoc.span_id,
-        ))?;
+    fn associate_context(&mut self, assoc: models::ContextAssoc) -> Result<models::ContextAssoc> {
+        <models::ContextAssoc as Insertable<4>>::insert(&assoc, &self.conn)?;
         Ok(assoc)
     }
 
-    fn insert_upload_details(
+    fn multi_associate_context(&mut self, assocs: Vec<&mut models::ContextAssoc>) -> Result<()> {
+        <models::ContextAssoc as Insertable<4>>::multi_insert(
+            assocs.iter().map(|v| &**v),
+            &self.conn,
+        )?;
+        Ok(())
+    }
+
+    fn insert_raw_upload(
         &mut self,
-        upload_details: models::UploadDetails,
-    ) -> Result<models::UploadDetails> {
-        let mut stmt = self.conn.prepare_cached("INSERT INTO upload_details (context_id, timestamp, raw_upload_url, flags, provider, build, name, job_name, ci_run_url, state, env, session_type, session_extras) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)")?;
+        mut raw_upload: models::RawUpload,
+    ) -> Result<models::RawUpload> {
+        let mut stmt = self.conn.prepare_cached("INSERT INTO raw_upload (id, timestamp, raw_upload_url, flags, provider, build, name, job_name, ci_run_url, state, env, session_type, session_extras) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)")?;
+
+        raw_upload.id = self.rng.gen();
         let _ = stmt.execute((
-            &upload_details.context_id,
-            &upload_details.timestamp,
-            &upload_details.raw_upload_url,
-            &upload_details.flags.as_ref().map(|v| v.to_string()),
-            &upload_details.provider,
-            &upload_details.build,
-            &upload_details.name,
-            &upload_details.job_name,
-            &upload_details.ci_run_url,
-            &upload_details.state,
-            &upload_details.env,
-            &upload_details.session_type,
-            &upload_details
-                .session_extras
-                .as_ref()
-                .map(|v| v.to_string()),
+            &raw_upload.id,
+            &raw_upload.timestamp,
+            &raw_upload.raw_upload_url,
+            &raw_upload.flags.as_ref().map(|v| v.to_string()),
+            &raw_upload.provider,
+            &raw_upload.build,
+            &raw_upload.name,
+            &raw_upload.job_name,
+            &raw_upload.ci_run_url,
+            &raw_upload.state,
+            &raw_upload.env,
+            &raw_upload.session_type,
+            &raw_upload.session_extras.as_ref().map(|v| v.to_string()),
         ))?;
 
-        Ok(upload_details)
+        Ok(raw_upload)
     }
 
     fn build(self) -> Result<SqliteReport> {
@@ -410,7 +461,7 @@ mod tests {
 
         let expected_context = models::Context {
             id: hash_id("foo"),
-            context_type: models::ContextType::Upload,
+            context_type: models::ContextType::TestCase,
             name: "foo".to_string(),
         };
         let actual_context = report_builder
@@ -445,9 +496,13 @@ mod tests {
         let file = report_builder
             .insert_file("src/report.rs".to_string())
             .unwrap();
+        let raw_upload = report_builder
+            .insert_raw_upload(Default::default())
+            .unwrap();
 
         let mut expected_sample = models::CoverageSample {
-            id: Uuid::nil(), // Ignored
+            local_sample_id: 1337, // this will be overwritten
+            raw_upload_id: raw_upload.id,
             source_file_id: file.id,
             line_no: 1,
             coverage_type: models::CoverageType::Line,
@@ -458,9 +513,89 @@ mod tests {
         let actual_sample = report_builder
             .insert_coverage_sample(expected_sample.clone())
             .unwrap();
-        assert_ne!(expected_sample.id, actual_sample.id);
-        expected_sample.id = actual_sample.id.clone();
+        assert_ne!(
+            expected_sample.local_sample_id,
+            actual_sample.local_sample_id
+        );
+        assert_eq!(actual_sample.local_sample_id, 0);
+        expected_sample.local_sample_id = actual_sample.local_sample_id.clone();
         assert_eq!(actual_sample, expected_sample);
+
+        let second_sample = report_builder
+            .insert_coverage_sample(expected_sample.clone())
+            .unwrap();
+        assert_ne!(
+            expected_sample.local_sample_id,
+            second_sample.local_sample_id
+        );
+        assert_ne!(actual_sample.local_sample_id, second_sample.local_sample_id);
+        assert_eq!(second_sample.local_sample_id, 1);
+        expected_sample.local_sample_id = second_sample.local_sample_id.clone();
+        assert_eq!(second_sample, expected_sample);
+    }
+
+    #[test]
+    fn test_multi_insert_coverage_sample() {
+        let ctx = setup();
+        let db_file = ctx.temp_dir.path().join("db.sqlite");
+        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+
+        let file = report_builder
+            .insert_file("src/report.rs".to_string())
+            .unwrap();
+        let raw_upload = report_builder
+            .insert_raw_upload(Default::default())
+            .unwrap();
+
+        let mut samples: Vec<models::CoverageSample> = vec![
+            models::CoverageSample {
+                source_file_id: file.id,
+                raw_upload_id: raw_upload.id,
+                ..Default::default()
+            };
+            5
+        ];
+        report_builder
+            .multi_insert_coverage_sample(samples.iter_mut().collect())
+            .unwrap();
+
+        let report = report_builder.build().unwrap();
+        let samples = report.list_coverage_samples().unwrap();
+        assert_eq!(
+            samples,
+            vec![
+                models::CoverageSample {
+                    local_sample_id: 0,
+                    source_file_id: file.id,
+                    raw_upload_id: raw_upload.id,
+                    ..Default::default()
+                },
+                models::CoverageSample {
+                    local_sample_id: 1,
+                    source_file_id: file.id,
+                    raw_upload_id: raw_upload.id,
+                    ..Default::default()
+                },
+                models::CoverageSample {
+                    local_sample_id: 2,
+                    source_file_id: file.id,
+                    raw_upload_id: raw_upload.id,
+                    ..Default::default()
+                },
+                models::CoverageSample {
+                    local_sample_id: 3,
+                    source_file_id: file.id,
+                    raw_upload_id: raw_upload.id,
+                    ..Default::default()
+                },
+                models::CoverageSample {
+                    local_sample_id: 4,
+                    source_file_id: file.id,
+                    raw_upload_id: raw_upload.id,
+                    ..Default::default()
+                },
+            ]
+        );
     }
 
     #[test]
@@ -472,9 +607,13 @@ mod tests {
         let file = report_builder
             .insert_file("src/report.rs".to_string())
             .unwrap();
+        let raw_upload = report_builder
+            .insert_raw_upload(Default::default())
+            .unwrap();
 
         let coverage_sample = report_builder
             .insert_coverage_sample(models::CoverageSample {
+                raw_upload_id: raw_upload.id,
                 source_file_id: file.id,
                 line_no: 1,
                 coverage_type: models::CoverageType::Branch,
@@ -485,19 +624,114 @@ mod tests {
             .unwrap();
 
         let mut expected_branch = models::BranchesData {
-            id: Uuid::nil(), // Ignored
+            local_branch_id: 1337, // this will be overwritten
+            raw_upload_id: raw_upload.id,
             source_file_id: file.id,
-            sample_id: coverage_sample.id,
+            local_sample_id: coverage_sample.local_sample_id,
             hits: 0,
             branch_format: models::BranchFormat::Condition,
             branch: "0:jump".to_string(),
+            ..Default::default()
         };
         let actual_branch = report_builder
             .insert_branches_data(expected_branch.clone())
             .unwrap();
-        assert_ne!(expected_branch.id, actual_branch.id);
-        expected_branch.id = actual_branch.id;
+        assert_ne!(
+            expected_branch.local_branch_id,
+            actual_branch.local_branch_id
+        );
+        assert_eq!(actual_branch.local_branch_id, 1);
+        expected_branch.local_branch_id = actual_branch.local_branch_id;
         assert_eq!(actual_branch, expected_branch);
+
+        let second_branch = report_builder
+            .insert_branches_data(expected_branch.clone())
+            .unwrap();
+        assert_ne!(
+            expected_branch.local_branch_id,
+            second_branch.local_branch_id
+        );
+        assert_ne!(actual_branch.local_branch_id, second_branch.local_branch_id);
+        assert_eq!(second_branch.local_branch_id, 2);
+        expected_branch.local_branch_id = second_branch.local_branch_id;
+        assert_eq!(second_branch, expected_branch);
+    }
+
+    #[test]
+    fn test_multi_insert_branches_data() {
+        let ctx = setup();
+        let db_file = ctx.temp_dir.path().join("db.sqlite");
+        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+
+        let file = report_builder
+            .insert_file("src/report.rs".to_string())
+            .unwrap();
+        let raw_upload = report_builder
+            .insert_raw_upload(Default::default())
+            .unwrap();
+        let cov_sample = report_builder
+            .insert_coverage_sample(models::CoverageSample {
+                source_file_id: file.id,
+                raw_upload_id: raw_upload.id,
+                ..Default::default()
+            })
+            .unwrap();
+
+        let mut branches: Vec<models::BranchesData> = vec![
+            models::BranchesData {
+                source_file_id: file.id,
+                raw_upload_id: raw_upload.id,
+                local_sample_id: cov_sample.local_sample_id,
+                ..Default::default()
+            };
+            5
+        ];
+        report_builder
+            .multi_insert_branches_data(branches.iter_mut().collect())
+            .unwrap();
+
+        let report = report_builder.build().unwrap();
+        let branches = report.list_branches_for_sample(&cov_sample).unwrap();
+        assert_eq!(
+            branches,
+            vec![
+                models::BranchesData {
+                    local_branch_id: 1,
+                    source_file_id: file.id,
+                    raw_upload_id: raw_upload.id,
+                    local_sample_id: cov_sample.local_sample_id,
+                    ..Default::default()
+                },
+                models::BranchesData {
+                    local_branch_id: 2,
+                    source_file_id: file.id,
+                    raw_upload_id: raw_upload.id,
+                    local_sample_id: cov_sample.local_sample_id,
+                    ..Default::default()
+                },
+                models::BranchesData {
+                    local_branch_id: 3,
+                    source_file_id: file.id,
+                    raw_upload_id: raw_upload.id,
+                    local_sample_id: cov_sample.local_sample_id,
+                    ..Default::default()
+                },
+                models::BranchesData {
+                    local_branch_id: 4,
+                    source_file_id: file.id,
+                    raw_upload_id: raw_upload.id,
+                    local_sample_id: cov_sample.local_sample_id,
+                    ..Default::default()
+                },
+                models::BranchesData {
+                    local_branch_id: 5,
+                    source_file_id: file.id,
+                    raw_upload_id: raw_upload.id,
+                    local_sample_id: cov_sample.local_sample_id,
+                    ..Default::default()
+                },
+            ]
+        );
     }
 
     #[test]
@@ -510,8 +744,13 @@ mod tests {
             .insert_file("src/report.rs".to_string())
             .unwrap();
 
+        let raw_upload = report_builder
+            .insert_raw_upload(Default::default())
+            .unwrap();
+
         let coverage_sample = report_builder
             .insert_coverage_sample(models::CoverageSample {
+                raw_upload_id: raw_upload.id,
                 source_file_id: file.id,
                 line_no: 1, // line_no
                 coverage_type: models::CoverageType::Branch,
@@ -522,9 +761,10 @@ mod tests {
             .unwrap();
 
         let mut expected_method = models::MethodData {
-            id: Uuid::nil(), // Ignored
+            local_method_id: 1337, // this will be overwritten
+            raw_upload_id: raw_upload.id,
             source_file_id: file.id,
-            sample_id: Some(coverage_sample.id),
+            local_sample_id: coverage_sample.local_sample_id,
             line_no: Some(1),
             hit_branches: Some(1),
             total_branches: Some(2),
@@ -535,8 +775,95 @@ mod tests {
         let actual_method = report_builder
             .insert_method_data(expected_method.clone())
             .unwrap();
-        expected_method.id = actual_method.id;
+        assert_ne!(
+            actual_method.local_method_id,
+            expected_method.local_method_id
+        );
+        assert_eq!(actual_method.local_method_id, 1);
+        expected_method.local_method_id = actual_method.local_method_id;
         assert_eq!(actual_method, expected_method);
+
+        let second_method = report_builder
+            .insert_method_data(expected_method.clone())
+            .unwrap();
+        assert_ne!(second_method.local_method_id, actual_method.local_method_id);
+        assert_ne!(
+            second_method.local_method_id,
+            expected_method.local_method_id
+        );
+        assert_eq!(second_method.local_method_id, 2);
+        expected_method.local_method_id = second_method.local_method_id;
+        assert_eq!(second_method, expected_method);
+    }
+
+    #[test]
+    fn test_multi_insert_method_data() {
+        let ctx = setup();
+        let db_file = ctx.temp_dir.path().join("db.sqlite");
+        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+
+        let file = report_builder
+            .insert_file("src/report.rs".to_string())
+            .unwrap();
+        let raw_upload = report_builder
+            .insert_raw_upload(Default::default())
+            .unwrap();
+        let cov_sample_1 = report_builder
+            .insert_coverage_sample(models::CoverageSample {
+                source_file_id: file.id,
+                raw_upload_id: raw_upload.id,
+                ..Default::default()
+            })
+            .unwrap();
+        let cov_sample_2 = report_builder
+            .insert_coverage_sample(models::CoverageSample {
+                source_file_id: file.id,
+                raw_upload_id: raw_upload.id,
+                ..Default::default()
+            })
+            .unwrap();
+
+        let mut methods: Vec<models::MethodData> = vec![
+            models::MethodData {
+                source_file_id: file.id,
+                raw_upload_id: raw_upload.id,
+                local_sample_id: cov_sample_1.local_sample_id,
+                ..Default::default()
+            },
+            models::MethodData {
+                source_file_id: file.id,
+                raw_upload_id: raw_upload.id,
+                local_sample_id: cov_sample_2.local_sample_id,
+                ..Default::default()
+            },
+        ];
+        report_builder
+            .multi_insert_method_data(methods.iter_mut().collect())
+            .unwrap();
+
+        let report = report_builder.build().unwrap();
+        let method_1 = report.get_method_for_sample(&cov_sample_1).unwrap();
+        assert_eq!(
+            method_1,
+            Some(models::MethodData {
+                local_method_id: 2,
+                source_file_id: file.id,
+                raw_upload_id: raw_upload.id,
+                local_sample_id: cov_sample_1.local_sample_id,
+                ..Default::default()
+            })
+        );
+        let method_2 = report.get_method_for_sample(&cov_sample_2).unwrap();
+        assert_eq!(
+            method_2,
+            Some(models::MethodData {
+                local_method_id: 3,
+                source_file_id: file.id,
+                raw_upload_id: raw_upload.id,
+                local_sample_id: cov_sample_2.local_sample_id,
+                ..Default::default()
+            })
+        );
     }
 
     #[test]
@@ -548,9 +875,13 @@ mod tests {
         let file = report_builder
             .insert_file("src/report.rs".to_string())
             .unwrap();
+        let raw_upload = report_builder
+            .insert_raw_upload(Default::default())
+            .unwrap();
 
         let coverage_sample = report_builder
             .insert_coverage_sample(models::CoverageSample {
+                raw_upload_id: raw_upload.id,
                 source_file_id: file.id,
                 line_no: 1, // line_no
                 coverage_type: models::CoverageType::Branch,
@@ -561,9 +892,10 @@ mod tests {
             .unwrap();
 
         let mut expected_span = models::SpanData {
-            id: Uuid::nil(), // Ignored
+            raw_upload_id: raw_upload.id,
+            local_span_id: 1337, // this will be overwritten
             source_file_id: file.id,
-            sample_id: Some(coverage_sample.id),
+            local_sample_id: Some(coverage_sample.local_sample_id),
             hits: 2,
             start_line: Some(1),
             start_col: Some(0),
@@ -573,8 +905,96 @@ mod tests {
         let actual_span = report_builder
             .insert_span_data(expected_span.clone())
             .unwrap();
-        expected_span.id = actual_span.id;
+        assert_ne!(actual_span.local_span_id, expected_span.local_span_id);
+        assert_eq!(actual_span.local_span_id, 1);
+        expected_span.local_span_id = actual_span.local_span_id;
         assert_eq!(actual_span, expected_span);
+
+        let second_span = report_builder
+            .insert_span_data(expected_span.clone())
+            .unwrap();
+        assert_ne!(second_span.local_span_id, actual_span.local_span_id);
+        assert_ne!(second_span.local_span_id, expected_span.local_span_id);
+        assert_eq!(second_span.local_span_id, 2);
+        expected_span.local_span_id = second_span.local_span_id;
+        assert_eq!(second_span, expected_span);
+    }
+
+    #[test]
+    fn test_multi_insert_span_data() {
+        let ctx = setup();
+        let db_file = ctx.temp_dir.path().join("db.sqlite");
+        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+
+        let file = report_builder
+            .insert_file("src/report.rs".to_string())
+            .unwrap();
+        let raw_upload = report_builder
+            .insert_raw_upload(Default::default())
+            .unwrap();
+        let cov_sample = report_builder
+            .insert_coverage_sample(models::CoverageSample {
+                source_file_id: file.id,
+                raw_upload_id: raw_upload.id,
+                ..Default::default()
+            })
+            .unwrap();
+
+        let mut spans: Vec<models::SpanData> = vec![
+            models::SpanData {
+                source_file_id: file.id,
+                raw_upload_id: raw_upload.id,
+                local_sample_id: Some(cov_sample.local_sample_id),
+                ..Default::default()
+            };
+            5
+        ];
+        report_builder
+            .multi_insert_span_data(spans.iter_mut().collect())
+            .unwrap();
+
+        let report = report_builder.build().unwrap();
+        let branchs = report.list_spans_for_sample(&cov_sample).unwrap();
+        assert_eq!(
+            branchs,
+            vec![
+                models::SpanData {
+                    local_span_id: 1,
+                    source_file_id: file.id,
+                    raw_upload_id: raw_upload.id,
+                    local_sample_id: Some(cov_sample.local_sample_id),
+                    ..Default::default()
+                },
+                models::SpanData {
+                    local_span_id: 2,
+                    source_file_id: file.id,
+                    raw_upload_id: raw_upload.id,
+                    local_sample_id: Some(cov_sample.local_sample_id),
+                    ..Default::default()
+                },
+                models::SpanData {
+                    local_span_id: 3,
+                    source_file_id: file.id,
+                    raw_upload_id: raw_upload.id,
+                    local_sample_id: Some(cov_sample.local_sample_id),
+                    ..Default::default()
+                },
+                models::SpanData {
+                    local_span_id: 4,
+                    source_file_id: file.id,
+                    raw_upload_id: raw_upload.id,
+                    local_sample_id: Some(cov_sample.local_sample_id),
+                    ..Default::default()
+                },
+                models::SpanData {
+                    local_span_id: 5,
+                    source_file_id: file.id,
+                    raw_upload_id: raw_upload.id,
+                    local_sample_id: Some(cov_sample.local_sample_id),
+                    ..Default::default()
+                },
+            ]
+        );
     }
 
     #[test]
@@ -587,8 +1007,13 @@ mod tests {
             .insert_file("src/report.rs".to_string())
             .unwrap();
 
+        let raw_upload = report_builder
+            .insert_raw_upload(Default::default())
+            .unwrap();
+
         let coverage_sample = report_builder
             .insert_coverage_sample(models::CoverageSample {
+                raw_upload_id: raw_upload.id,
                 source_file_id: file.id,
                 line_no: 1, // line_no
                 coverage_type: models::CoverageType::Branch,
@@ -598,34 +1023,11 @@ mod tests {
             })
             .unwrap();
 
-        let branch = report_builder
-            .insert_branches_data(models::BranchesData {
-                source_file_id: file.id,
-                sample_id: coverage_sample.id,
-                hits: 0, // hits
-                branch_format: models::BranchFormat::Condition,
-                branch: "0:jump".to_string(),
-                ..Default::default()
-            })
-            .unwrap();
-
-        let method = report_builder
-            .insert_method_data(models::MethodData {
-                source_file_id: file.id,
-                sample_id: Some(coverage_sample.id),
-                line_no: Some(1),
-                hit_branches: Some(1),
-                total_branches: Some(2),
-                hit_complexity_paths: Some(1),
-                total_complexity: Some(2),
-                ..Default::default()
-            })
-            .unwrap();
-
         let span = report_builder
             .insert_span_data(models::SpanData {
+                raw_upload_id: raw_upload.id,
                 source_file_id: file.id,
-                sample_id: Some(coverage_sample.id),
+                local_sample_id: Some(coverage_sample.local_sample_id),
                 hits: 1,             // hits
                 start_line: Some(1), // start_line
                 start_col: Some(0),  // start_col
@@ -636,23 +1038,21 @@ mod tests {
             .unwrap();
 
         let context = report_builder
-            .insert_context(models::ContextType::Upload, &"upload".to_string())
+            .insert_context(models::ContextType::TestCase, &"test_case".to_string())
             .unwrap();
 
         let expected_assoc = models::ContextAssoc {
             context_id: context.id,
-            sample_id: Some(coverage_sample.id),
-            branch_id: Some(branch.id),
-            method_id: Some(method.id),
-            span_id: Some(span.id),
+            raw_upload_id: raw_upload.id,
+            local_sample_id: Some(coverage_sample.local_sample_id),
+            local_span_id: Some(span.local_span_id),
         };
         let actual_assoc = report_builder
             .associate_context(models::ContextAssoc {
                 context_id: context.id,
-                sample_id: Some(coverage_sample.id),
-                branch_id: Some(branch.id),
-                method_id: Some(method.id),
-                span_id: Some(span.id),
+                raw_upload_id: raw_upload.id,
+                local_sample_id: Some(coverage_sample.local_sample_id),
+                local_span_id: Some(span.local_span_id),
             })
             .unwrap();
         assert_eq!(actual_assoc, expected_assoc);
@@ -669,7 +1069,7 @@ mod tests {
                 assert_eq!(
                     s,
                     String::from(
-                        "UNIQUE constraint failed: context_assoc.context_id, context_assoc.sample_id"
+                        "UNIQUE constraint failed: context_assoc.context_id, context_assoc.raw_upload_id, context_assoc.local_sample_id, context_assoc.local_span_id"
                     )
                 );
             }
@@ -680,16 +1080,66 @@ mod tests {
     }
 
     #[test]
-    fn test_insert_upload_details() {
+    fn test_multi_associate_context() {
         let ctx = setup();
         let db_file = ctx.temp_dir.path().join("db.sqlite");
         let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
 
-        let upload = report_builder
-            .insert_context(models::ContextType::Upload, "codecov-rs CI")
+        let file = report_builder
+            .insert_file("src/report.rs".to_string())
             .unwrap();
-        let inserted_details = models::UploadDetails {
-            context_id: upload.id,
+        let raw_upload = report_builder
+            .insert_raw_upload(Default::default())
+            .unwrap();
+        let cov_sample = report_builder
+            .insert_coverage_sample(models::CoverageSample {
+                source_file_id: file.id,
+                raw_upload_id: raw_upload.id,
+                ..Default::default()
+            })
+            .unwrap();
+
+        let contexts = vec![
+            report_builder
+                .insert_context(models::ContextType::TestCase, "test case 1")
+                .unwrap(),
+            report_builder
+                .insert_context(models::ContextType::TestCase, "test case 2")
+                .unwrap(),
+            report_builder
+                .insert_context(models::ContextType::TestCase, "test case 3")
+                .unwrap(),
+            report_builder
+                .insert_context(models::ContextType::TestCase, "test case 4")
+                .unwrap(),
+        ];
+
+        let mut assocs: Vec<_> = contexts
+            .iter()
+            .map(|context| models::ContextAssoc {
+                raw_upload_id: raw_upload.id,
+                local_sample_id: Some(cov_sample.local_sample_id),
+                context_id: context.id,
+                ..Default::default()
+            })
+            .collect();
+
+        let _ = report_builder
+            .multi_associate_context(assocs.iter_mut().collect())
+            .unwrap();
+
+        let report = report_builder.build().unwrap();
+        let associated_contexts = report.list_contexts_for_sample(&cov_sample).unwrap();
+        assert_eq!(associated_contexts, contexts);
+    }
+
+    #[test]
+    fn test_insert_raw_upload() {
+        let ctx = setup();
+        let db_file = ctx.temp_dir.path().join("db.sqlite");
+        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+
+        let inserted_upload = models::RawUpload {
             timestamp: Some(123),
             raw_upload_url: Some("https://example.com".to_string()),
             flags: Some(json!(["abc".to_string(), "def".to_string()])),
@@ -702,25 +1152,13 @@ mod tests {
             env: Some("env".to_string()),
             session_type: Some("uploaded".to_string()),
             session_extras: Some(json!({})),
+            ..Default::default()
         };
-        let inserted_details = report_builder
-            .insert_upload_details(inserted_details)
-            .unwrap();
-
-        let other_upload = report_builder
-            .insert_context(models::ContextType::Upload, "codecov-rs CI 2")
-            .unwrap();
+        let inserted_upload = report_builder.insert_raw_upload(inserted_upload).unwrap();
 
         let report = report_builder.build().unwrap();
-        let fetched_details = report.get_details_for_upload(&upload).unwrap();
-        assert_eq!(fetched_details, inserted_details);
-
-        let other_details_result = report.get_details_for_upload(&other_upload);
-        assert!(other_details_result.is_err());
-        match other_details_result {
-            Err(CodecovError::SqliteError(rusqlite::Error::QueryReturnedNoRows)) => {}
-            _ => assert!(false),
-        }
+        let fetched_uploads = report.list_raw_uploads().unwrap();
+        assert_eq!(fetched_uploads, &[inserted_upload]);
     }
 
     #[test]

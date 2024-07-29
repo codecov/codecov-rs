@@ -4,8 +4,6 @@ select
   context.name
 from
   context
-where
-  context.context_type <> 'Upload'
 ),
 labels_index as (
 select

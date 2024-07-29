@@ -332,245 +332,11 @@ mod tests {
     }
 
     fn build_sample_report(path: PathBuf) -> Result<SqliteReport> {
-        let mut builder = SqliteReportBuilder::new(path)?;
+        let mut builder = SqliteReportBuilder::new_with_seed(path, 5)?;
         let file_1 = builder.insert_file("src/report/report.rs".to_string())?;
         let file_2 = builder.insert_file("src/report/models.rs".to_string())?;
 
-        let line_1 = builder.insert_coverage_sample(models::CoverageSample {
-            source_file_id: file_1.id,
-            line_no: 1,
-            coverage_type: models::CoverageType::Line,
-            hits: Some(3),
-            ..Default::default()
-        })?;
-        let line_2 = builder.insert_coverage_sample(models::CoverageSample {
-            source_file_id: file_2.id,
-            line_no: 1,
-            coverage_type: models::CoverageType::Line,
-            hits: Some(4),
-            ..Default::default()
-        })?;
-        let line_3 = builder.insert_coverage_sample(models::CoverageSample {
-            source_file_id: file_2.id,
-            line_no: 3,
-            coverage_type: models::CoverageType::Line,
-            hits: Some(0),
-            ..Default::default()
-        })?;
-
-        let branch_sample_1 = builder.insert_coverage_sample(models::CoverageSample {
-            source_file_id: file_1.id,
-            line_no: 3,
-            coverage_type: models::CoverageType::Branch,
-            hit_branches: Some(2),
-            total_branches: Some(2),
-            ..Default::default()
-        })?;
-        let _ = builder.insert_branches_data(models::BranchesData {
-            source_file_id: branch_sample_1.source_file_id,
-            sample_id: branch_sample_1.id,
-            hits: 1,
-            branch_format: models::BranchFormat::Condition,
-            branch: "0:jump".to_string(),
-            ..Default::default()
-        })?;
-        let _ = builder.insert_branches_data(models::BranchesData {
-            source_file_id: branch_sample_1.source_file_id,
-            sample_id: branch_sample_1.id,
-            hits: 1,
-            branch_format: models::BranchFormat::Condition,
-            branch: "1".to_string(),
-            ..Default::default()
-        })?;
-
-        let branch_sample_2 = builder.insert_coverage_sample(models::CoverageSample {
-            source_file_id: file_2.id,
-            line_no: 6,
-            coverage_type: models::CoverageType::Branch,
-            hit_branches: Some(2),
-            total_branches: Some(4),
-            ..Default::default()
-        })?;
-        let _ = builder.insert_branches_data(models::BranchesData {
-            source_file_id: branch_sample_2.source_file_id,
-            sample_id: branch_sample_2.id,
-            hits: 1,
-            branch_format: models::BranchFormat::Condition,
-            branch: "0:jump".to_string(),
-            ..Default::default()
-        })?;
-        let _ = builder.insert_branches_data(models::BranchesData {
-            source_file_id: branch_sample_2.source_file_id,
-            sample_id: branch_sample_2.id,
-            hits: 1,
-            branch_format: models::BranchFormat::Condition,
-            branch: "1".to_string(),
-            ..Default::default()
-        })?;
-        let _ = builder.insert_branches_data(models::BranchesData {
-            source_file_id: branch_sample_2.source_file_id,
-            sample_id: branch_sample_2.id,
-            hits: 0,
-            branch_format: models::BranchFormat::Condition,
-            branch: "2".to_string(),
-            ..Default::default()
-        })?;
-        let _ = builder.insert_branches_data(models::BranchesData {
-            source_file_id: branch_sample_2.source_file_id,
-            sample_id: branch_sample_2.id,
-            hits: 0,
-            branch_format: models::BranchFormat::Condition,
-            branch: "3".to_string(),
-            ..Default::default()
-        })?;
-
-        let method_sample_1 = builder.insert_coverage_sample(models::CoverageSample {
-            source_file_id: file_1.id,
-            line_no: 2,
-            coverage_type: models::CoverageType::Method,
-            hits: Some(2),
-            ..Default::default()
-        })?;
-        let _ = builder.insert_method_data(models::MethodData {
-            source_file_id: method_sample_1.source_file_id,
-            sample_id: Some(method_sample_1.id),
-            line_no: Some(method_sample_1.line_no),
-            hit_branches: Some(2),
-            total_branches: Some(4),
-            hit_complexity_paths: Some(2),
-            total_complexity: Some(4),
-            ..Default::default()
-        })?;
-
-        let method_sample_2 = builder.insert_coverage_sample(models::CoverageSample {
-            source_file_id: file_2.id,
-            line_no: 2,
-            coverage_type: models::CoverageType::Method,
-            hits: Some(5),
-            ..Default::default()
-        })?;
-        let _ = builder.insert_method_data(models::MethodData {
-            source_file_id: method_sample_2.source_file_id,
-            sample_id: Some(method_sample_2.id),
-            line_no: Some(method_sample_2.line_no),
-            hit_branches: Some(2),
-            total_branches: Some(4),
-            ..Default::default()
-        })?;
-
-        let method_sample_3 = builder.insert_coverage_sample(models::CoverageSample {
-            source_file_id: file_2.id,
-            line_no: 5,
-            coverage_type: models::CoverageType::Method,
-            hits: Some(0),
-            ..Default::default()
-        })?;
-        let _ = builder.insert_method_data(models::MethodData {
-            source_file_id: method_sample_3.source_file_id,
-            sample_id: Some(method_sample_3.id),
-            line_no: Some(method_sample_3.line_no),
-            hit_complexity_paths: Some(2),
-            total_complexity: Some(4),
-            ..Default::default()
-        })?;
-
-        let line_with_partial_1 = builder.insert_coverage_sample(models::CoverageSample {
-            source_file_id: file_1.id,
-            line_no: 8,
-            coverage_type: models::CoverageType::Line,
-            hits: Some(3),
-            ..Default::default()
-        })?;
-        let _ = builder.insert_span_data(models::SpanData {
-            source_file_id: line_with_partial_1.source_file_id,
-            sample_id: Some(line_with_partial_1.id),
-            start_line: Some(line_with_partial_1.line_no),
-            start_col: Some(3),
-            end_line: Some(line_with_partial_1.line_no),
-            end_col: None,
-            hits: 3,
-            ..Default::default()
-        })?;
-
-        let upload_1 = builder.insert_context(models::ContextType::Upload, "codecov-rs CI")?;
-        let _ = builder.associate_context(models::ContextAssoc {
-            context_id: upload_1.id,
-            sample_id: Some(line_1.id),
-            ..Default::default()
-        })?;
-        let _ = builder.associate_context(models::ContextAssoc {
-            context_id: upload_1.id,
-            sample_id: Some(line_2.id),
-            ..Default::default()
-        })?;
-        let _ = builder.associate_context(models::ContextAssoc {
-            context_id: upload_1.id,
-            sample_id: Some(branch_sample_1.id),
-            ..Default::default()
-        })?;
-        let _ = builder.associate_context(models::ContextAssoc {
-            context_id: upload_1.id,
-            sample_id: Some(branch_sample_2.id),
-            ..Default::default()
-        })?;
-        let _ = builder.associate_context(models::ContextAssoc {
-            context_id: upload_1.id,
-            sample_id: Some(method_sample_1.id),
-            ..Default::default()
-        })?;
-        let _ = builder.associate_context(models::ContextAssoc {
-            context_id: upload_1.id,
-            sample_id: Some(method_sample_2.id),
-            ..Default::default()
-        })?;
-        let _ = builder.associate_context(models::ContextAssoc {
-            context_id: upload_1.id,
-            sample_id: Some(line_with_partial_1.id),
-            ..Default::default()
-        })?;
-
-        let upload_2 = builder.insert_context(models::ContextType::Upload, "codecov-rs CI 2")?;
-        let _ = builder.associate_context(models::ContextAssoc {
-            context_id: upload_2.id,
-            sample_id: Some(line_3.id),
-            ..Default::default()
-        })?;
-        let _ = builder.associate_context(models::ContextAssoc {
-            context_id: upload_2.id,
-            sample_id: Some(method_sample_3.id),
-            ..Default::default()
-        })?;
-
-        let label_1 = builder.insert_context(models::ContextType::TestCase, "test-case")?;
-        let _ = builder.associate_context(models::ContextAssoc {
-            context_id: label_1.id,
-            sample_id: Some(line_1.id),
-            ..Default::default()
-        })?;
-        let _ = builder.associate_context(models::ContextAssoc {
-            context_id: label_1.id,
-            sample_id: Some(line_2.id),
-            ..Default::default()
-        })?;
-        let label_2 = builder.insert_context(models::ContextType::TestCase, "test-case 2")?;
-        let _ = builder.associate_context(models::ContextAssoc {
-            context_id: label_2.id,
-            sample_id: Some(line_1.id),
-            ..Default::default()
-        })?;
-        let _ = builder.associate_context(models::ContextAssoc {
-            context_id: label_2.id,
-            sample_id: Some(line_2.id),
-            ..Default::default()
-        })?;
-        let _ = builder.associate_context(models::ContextAssoc {
-            context_id: label_2.id,
-            sample_id: Some(method_sample_1.id),
-            ..Default::default()
-        })?;
-
-        let _ = builder.insert_upload_details(models::UploadDetails {
-            context_id: upload_1.id,
+        let upload_1 = builder.insert_raw_upload(models::RawUpload {
             timestamp: Some(123),
             raw_upload_url: Some("upload 1 url".to_string()),
             flags: Some(json!(["flag on upload 1"])),
@@ -585,8 +351,7 @@ mod tests {
             session_extras: Some(json!({"k1": "v1"})),
             ..Default::default()
         })?;
-        let _ = builder.insert_upload_details(models::UploadDetails {
-            context_id: upload_2.id,
+        let upload_2 = builder.insert_raw_upload(models::RawUpload {
             timestamp: Some(456),
             raw_upload_url: Some("upload 2 url".to_string()),
             flags: Some(json!(["flag on upload 2"])),
@@ -599,6 +364,216 @@ mod tests {
             env: Some("env upload 2".to_string()),
             session_type: Some("type upload 2".to_string()),
             session_extras: Some(json!({"k2": "v2"})),
+            ..Default::default()
+        })?;
+
+        let line_1 = builder.insert_coverage_sample(models::CoverageSample {
+            raw_upload_id: upload_1.id,
+            source_file_id: file_1.id,
+            line_no: 1,
+            coverage_type: models::CoverageType::Line,
+            hits: Some(3),
+            ..Default::default()
+        })?;
+
+        let line_2 = builder.insert_coverage_sample(models::CoverageSample {
+            raw_upload_id: upload_1.id,
+            source_file_id: file_2.id,
+            line_no: 1,
+            coverage_type: models::CoverageType::Line,
+            hits: Some(4),
+            ..Default::default()
+        })?;
+        let _line_3 = builder.insert_coverage_sample(models::CoverageSample {
+            raw_upload_id: upload_2.id,
+            source_file_id: file_2.id,
+            line_no: 3,
+            coverage_type: models::CoverageType::Line,
+            hits: Some(0),
+            ..Default::default()
+        })?;
+
+        let branch_sample_1 = builder.insert_coverage_sample(models::CoverageSample {
+            raw_upload_id: upload_1.id,
+            source_file_id: file_1.id,
+            line_no: 3,
+            coverage_type: models::CoverageType::Branch,
+            hit_branches: Some(2),
+            total_branches: Some(2),
+            ..Default::default()
+        })?;
+        let _ = builder.insert_branches_data(models::BranchesData {
+            raw_upload_id: upload_1.id,
+            source_file_id: branch_sample_1.source_file_id,
+            local_sample_id: branch_sample_1.local_sample_id,
+            hits: 1,
+            branch_format: models::BranchFormat::Condition,
+            branch: "0:jump".to_string(),
+            ..Default::default()
+        })?;
+        let _ = builder.insert_branches_data(models::BranchesData {
+            raw_upload_id: upload_1.id,
+            source_file_id: branch_sample_1.source_file_id,
+            local_sample_id: branch_sample_1.local_sample_id,
+            hits: 1,
+            branch_format: models::BranchFormat::Condition,
+            branch: "1".to_string(),
+            ..Default::default()
+        })?;
+
+        let branch_sample_2 = builder.insert_coverage_sample(models::CoverageSample {
+            raw_upload_id: upload_1.id,
+            source_file_id: file_2.id,
+            line_no: 6,
+            coverage_type: models::CoverageType::Branch,
+            hit_branches: Some(2),
+            total_branches: Some(4),
+            ..Default::default()
+        })?;
+        let _ = builder.insert_branches_data(models::BranchesData {
+            raw_upload_id: upload_1.id,
+            source_file_id: branch_sample_2.source_file_id,
+            local_sample_id: branch_sample_2.local_sample_id,
+            hits: 1,
+            branch_format: models::BranchFormat::Condition,
+            branch: "0:jump".to_string(),
+            ..Default::default()
+        })?;
+        let _ = builder.insert_branches_data(models::BranchesData {
+            raw_upload_id: upload_1.id,
+            source_file_id: branch_sample_2.source_file_id,
+            local_sample_id: branch_sample_2.local_sample_id,
+            hits: 1,
+            branch_format: models::BranchFormat::Condition,
+            branch: "1".to_string(),
+            ..Default::default()
+        })?;
+        let _ = builder.insert_branches_data(models::BranchesData {
+            raw_upload_id: upload_1.id,
+            source_file_id: branch_sample_2.source_file_id,
+            local_sample_id: branch_sample_2.local_sample_id,
+            hits: 0,
+            branch_format: models::BranchFormat::Condition,
+            branch: "2".to_string(),
+            ..Default::default()
+        })?;
+        let _ = builder.insert_branches_data(models::BranchesData {
+            raw_upload_id: upload_1.id,
+            source_file_id: branch_sample_2.source_file_id,
+            local_sample_id: branch_sample_2.local_sample_id,
+            hits: 0,
+            branch_format: models::BranchFormat::Condition,
+            branch: "3".to_string(),
+            ..Default::default()
+        })?;
+
+        let method_sample_1 = builder.insert_coverage_sample(models::CoverageSample {
+            raw_upload_id: upload_1.id,
+            source_file_id: file_1.id,
+            line_no: 2,
+            coverage_type: models::CoverageType::Method,
+            hits: Some(2),
+            ..Default::default()
+        })?;
+        let _ = builder.insert_method_data(models::MethodData {
+            raw_upload_id: upload_1.id,
+            source_file_id: method_sample_1.source_file_id,
+            local_sample_id: method_sample_1.local_sample_id,
+            line_no: Some(method_sample_1.line_no),
+            hit_branches: Some(2),
+            total_branches: Some(4),
+            hit_complexity_paths: Some(2),
+            total_complexity: Some(4),
+            ..Default::default()
+        })?;
+
+        let method_sample_2 = builder.insert_coverage_sample(models::CoverageSample {
+            raw_upload_id: upload_1.id,
+            source_file_id: file_2.id,
+            line_no: 2,
+            coverage_type: models::CoverageType::Method,
+            hits: Some(5),
+            ..Default::default()
+        })?;
+        let _ = builder.insert_method_data(models::MethodData {
+            raw_upload_id: upload_1.id,
+            source_file_id: method_sample_2.source_file_id,
+            local_sample_id: method_sample_2.local_sample_id,
+            line_no: Some(method_sample_2.line_no),
+            hit_branches: Some(2),
+            total_branches: Some(4),
+            ..Default::default()
+        })?;
+
+        let method_sample_3 = builder.insert_coverage_sample(models::CoverageSample {
+            raw_upload_id: upload_2.id,
+            source_file_id: file_2.id,
+            line_no: 5,
+            coverage_type: models::CoverageType::Method,
+            hits: Some(0),
+            ..Default::default()
+        })?;
+        let _ = builder.insert_method_data(models::MethodData {
+            raw_upload_id: upload_2.id,
+            source_file_id: method_sample_3.source_file_id,
+            local_sample_id: method_sample_3.local_sample_id,
+            line_no: Some(method_sample_3.line_no),
+            hit_complexity_paths: Some(2),
+            total_complexity: Some(4),
+            ..Default::default()
+        })?;
+
+        let line_with_partial_1 = builder.insert_coverage_sample(models::CoverageSample {
+            raw_upload_id: upload_1.id,
+            source_file_id: file_1.id,
+            line_no: 8,
+            coverage_type: models::CoverageType::Line,
+            hits: Some(3),
+            ..Default::default()
+        })?;
+        let _ = builder.insert_span_data(models::SpanData {
+            raw_upload_id: upload_1.id,
+            source_file_id: line_with_partial_1.source_file_id,
+            local_sample_id: Some(line_with_partial_1.local_sample_id),
+            start_line: Some(line_with_partial_1.line_no),
+            start_col: Some(3),
+            end_line: Some(line_with_partial_1.line_no),
+            end_col: None,
+            hits: 3,
+            ..Default::default()
+        })?;
+
+        let label_1 = builder.insert_context(models::ContextType::TestCase, "test-case")?;
+        let _ = builder.associate_context(models::ContextAssoc {
+            context_id: label_1.id,
+            raw_upload_id: upload_1.id,
+            local_sample_id: Some(line_1.local_sample_id),
+            ..Default::default()
+        })?;
+        let _ = builder.associate_context(models::ContextAssoc {
+            context_id: label_1.id,
+            raw_upload_id: upload_1.id,
+            local_sample_id: Some(line_2.local_sample_id),
+            ..Default::default()
+        })?;
+
+        let label_2 = builder.insert_context(models::ContextType::TestCase, "test-case 2")?;
+        let _ = builder.associate_context(models::ContextAssoc {
+            context_id: label_2.id,
+            raw_upload_id: upload_1.id,
+            local_sample_id: Some(line_1.local_sample_id),
+            ..Default::default()
+        })?;
+        let _ = builder.associate_context(models::ContextAssoc {
+            context_id: label_2.id,
+            raw_upload_id: upload_1.id,
+            local_sample_id: Some(line_2.local_sample_id),
+            ..Default::default()
+        })?;
+        let _ = builder.associate_context(models::ContextAssoc {
+            context_id: label_2.id,
+            raw_upload_id: upload_1.id,
+            local_sample_id: Some(method_sample_1.local_sample_id),
             ..Default::default()
         })?;
 

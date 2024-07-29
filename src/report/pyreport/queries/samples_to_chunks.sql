@@ -1,24 +1,9 @@
 with session_indices as (
 select
-  row_number() over (order by context.id) - 1 as session_index,
-  context.id as context_id
+  row_number() over (order by raw_upload.id) - 1 as session_index,
+  raw_upload.id as raw_upload_id
 from
-  context
-where
-  context.context_type = 'Upload'
-),
-upload_assocs as (
-select
-  context_assoc.context_id,
-  context_assoc.sample_id
-from
-  context_assoc
-left join
-  context
-on
-  context_assoc.context_id = context.id
-where
-  context.context_type = 'Upload'
+  raw_upload
 ),
 chunks_file_indices as (
 select
@@ -32,41 +17,17 @@ left join
 on
   coverage_sample.source_file_id = source_file.id
 left join
-  upload_assocs
-on
-  upload_assocs.sample_id = coverage_sample.id
-left join
   session_indices
 on
-  upload_assocs.context_id = session_indices.context_id
+  coverage_sample.raw_upload_id = session_indices.raw_upload_id
 group by
   2
 ),
-other_contexts as (
-select
-  *
-from
-  context
-where
-  context.context_type <> 'Upload'
-),
-other_assocs as (
-select
-  context_assoc.context_id,
-  context_assoc.sample_id
-from
-  context_assoc
-left join
-  context
-on
-  context_assoc.context_id = context.id
-where
-  context.context_type <> 'Upload'
-),
 formatted_span_data as (
 select
-  span_data.id,
-  span_data.sample_id,
+  span_data.raw_upload_id,
+  span_data.local_span_id,
+  span_data.local_sample_id,
   json_array(span_data.start_col, span_data.end_col, span_data.hits) as pyreport_partial
 from
   span_data
@@ -86,25 +47,24 @@ select
   -- The `order by` below is not strictly necessary, it just makes writing test cases easier
   json_group_array(branches_data.branch order by branches_data.branch) filter (where branches_data.branch is not null and branches_data.hits = 0) as missing_branches,
   json_group_array(json(formatted_span_data.pyreport_partial)) filter (where formatted_span_data.pyreport_partial is not null) as partials,
-  json_group_array(other_contexts.name) filter (where other_contexts.name is not null) as labels
+  json_group_array(context.name) filter (where context.name is not null) as labels
 from
   coverage_sample
 left join
-  upload_assocs
-on
-  upload_assocs.sample_id = coverage_sample.id
-left join
   branches_data
 on
-  branches_data.sample_id = coverage_sample.id
+  branches_data.raw_upload_id = coverage_sample.raw_upload_id
+  and branches_data.local_sample_id = coverage_sample.local_sample_id
 left join
   method_data
 on
-  method_data.sample_id = coverage_sample.id
+  method_data.raw_upload_id = coverage_sample.raw_upload_id
+  and method_data.local_sample_id = coverage_sample.local_sample_id
 left join
   formatted_span_data
 on
-  formatted_span_data.sample_id = coverage_sample.id
+  formatted_span_data.raw_upload_id = coverage_sample.raw_upload_id
+  and formatted_span_data.local_sample_id = coverage_sample.local_sample_id
 left join
   chunks_file_indices
 on
@@ -112,17 +72,18 @@ on
 left join
   session_indices
 on
-  session_indices.context_id = upload_assocs.context_id
+  session_indices.raw_upload_id = coverage_sample.raw_upload_id
 left join
-  other_assocs
+  context_assoc
 on
-  other_assocs.sample_id = coverage_sample.id
+  context_assoc.raw_upload_id = coverage_sample.raw_upload_id
+  and context_assoc.local_sample_id = coverage_sample.local_sample_id
 left join
-  other_contexts
+  context
 on
-  other_contexts.id = other_assocs.context_id
+  context_assoc.context_id = context.id
 group by 1, 2, 3, 4
-order by 1, 2, 3, other_contexts.name
+order by 1, 2, 3, context.name
 ),
 report_line_totals as (
 select

@@ -2,44 +2,80 @@
  * Models for coverage data to be used by [`crate::report::ReportBuilder`]
  * and [`crate::report::Report`] implementations.
  *
- * An overview of the models and their relationships:
- * - Each source file in a report should have a [`SourceFile`] record.
- * - Each line in that source file, whether it's a statement, a branch, or a
- *   method declaration, should have a [`CoverageSample`] record with its
- *   `source_file_id` field pointed at its source file.
- *   - For lines/statements/method declarations, the `hits` field should
- *     contain a hit count
- *   - For branches, the `hit_branches` and `total_branches` fields should
- *     be filled in instead
- * - The [`Context`] and [`ContextAssoc`] models can be used to tag
- *   measurements with context (e.g. "these measurements were on Windows",
- *   "these measurements were from TestSuiteFoo") and enable
- *   querying/filtering.
- * - [`BranchesData`], [`MethodData`], and [`SpanData`] are optional. These
- *   models are for information that is not provided in every format or is
- *   provided in different shapes, and records should be tied to a
- *   [`CoverageSample`].
- *   - [`BranchesData`] can store information about which specific branches
- *     were hit or missed
- *   - [`MethodData`] can store information including cyclomatic complexity
- *     or aggregated line/branch coverage
- *   - [`SpanData`] can store coverage information that isn't presented
- *     line-by-line. Some formats report that a range from line X to line Y
- *     is covered, or that only part of a single line is covered.
- * - [`ReportTotals`] and [`CoverageTotals`] aggregate coverage data for a
- *   report/subset into useful metrics.
+ * ## Data model overview
  *
- * Some choices were made that make merging multiple reports together very
+ * ### [`RawUpload`]
+ * Each Codecov upload should have a `RawUpload` record with a random ID.
+ *
+ * ### [`SourceFile`]
+ * Each source file we have coverage data for should have a `SourceFile`
+ * record.
+ *
+ * ### [`CoverageSample`]
+ * An individual coverage measurement for a line of code. If the line is a
+ * statement or method declaration, the `hits` field records the number of
+ * times the line was hit. If the line is the root of a set of branches, the
+ * `hit_branches` and `total_branches` fields will be filled in instead.
+ *
+ * In the simple case, there will be a `CoverageSample` for each line, in
+ * each source file, in each Codecov upload. If there are multiple Codecov
+ * uploads, there will be multiple `CoverageSample` records for `foo.rs:32`.
+ *
+ * ### [`BranchesData`]
+ * A `CoverageSample` record that describes a branch may have associated
+ * `BranchesData` records with the coverage status of each specific branch.
+ * If `foo.rs:32` is an if statement, its `CoverageSample` will record
+ * whether 0/2, 1/2, or 2/2 branches were covered, and `BranchesData` will
+ * have a record for whether the "true" branch is covered and another for
+ * the "false" branch.
+ *
+ * Specific branch information is not always available. In Codecov's
+ * pyreport format, only specific missed branches are recorded.
+ *
+ * ### [`MethodData`]
+ * A `CoverageSample` record that describes a method declaration may have a
+ * `MethodData` record with extra method-specific data like cyclomatic
+ * complexity.
+ *
+ * ### [`SpanData`]
+ * A `SpanData` record represents a coverage measurement that isn't scoped
+ * to a line of code. Some formats take measurements that cover ranges of
+ * lines, and some take measurements that can cover a subset of a single
+ * line.
+ *
+ * (TODO) The relationship between a `SpanData` and a `CoverageSample` isn't
+ * settled.
+ * - Synthesize a `CoverageSample` record for each line covered by a span
+ *   measurement. Faithfully record each raw span measurement as a
+ *   `SpanData` record, and associate it with the relevant `CoverageSample`
+ *   records somehow.
+ * - Synthesize a `CoverageSample` record for each line covered by a span
+ *   measurement. If the first or last line of a span describes a subset of
+ *   a single line, create a `SpanData` record for that single-line subset.
+ *
+ * ### [`Context`] and [`ContextAssoc`]
+ * `Context` has a many-to-many relationship with `CoverageSample` and can
+ * link, for example, an individual test case with all the lines it covered.
+ *
+ * ### [`ReportTotals`] and [`CoverageTotals`]
+ * (Not actually database models)
+ * Aggregated coverage metrics.
+ *
+ * ## Implementation notes
+ *
+ * Some choices were made to make distributed processing / merging very
  * simple:
- * - [`SourceFile`] and [`Context`] use hashes of their names as an ID so
- *   every report they appear in will come up with the same ID
+ * - [`SourceFile`] and [`Context`] use hashes of their names as an ID.
+ *   Different hosts will all come up with the same ID for each.
  * - Measurement models ([`CoverageSample`], [`BranchesData`],
- *   [`MethodData`], [`SpanData`]) use UUIDv4s for IDs to essentially
- *   guarantee different reports will not use the same IDs
+ *   [`MethodData`], [`SpanData`]) have a composite primary key on
+ *   `raw_upload_id` (random per upload) and `local_*_id` (auto-increment
+ *   int). As long as we use a unique `raw_upload_id` when processing each
+ *   upload, it doesn't matter if `local_*_id` values are repeated.
  *
  * These properties make merging essentially just concatenation.
- * [`SourceFile`]s and [`Context`] can be merged into an existing report
- * with `INSERT OR IGNORE`, and the rest can be merged with a
+ * [`SourceFile`]s and [`Context`]s can be merged into an existing report
+ * with `INSERT OR IGNORE` and the rest can be merged with a
  * regular `INSERT` without needing to update any foreign keys or anything.
  *
  * SeaHash was chosen for hashed IDs due to:
@@ -57,7 +93,6 @@
  */
 
 use strum_macros::{Display, EnumString};
-use uuid::Uuid;
 
 use crate::parsers::json::JsonVal;
 
@@ -92,13 +127,8 @@ pub enum ContextType {
     /// A [`Context`] with this type represents a test case, and every
     /// [`CoverageSample`] associated with it is a measurement that applies
     /// to that test case.
-    TestCase,
-
-    /// A [`Context`] with this type represents a distinct upload with coverage
-    /// data. For instance, a Windows test runner and a macOS test runner
-    /// may send coverage data for the same code in two separate uploads.
     #[default]
-    Upload,
+    TestCase,
 }
 
 /// Each source file represented in the coverage data should have a
@@ -112,10 +142,16 @@ pub struct SourceFile {
     pub path: String,
 }
 
-/// Each line in a source file should have a [`CoverageSample`] record when
-/// possible, whether it's a line/statement, a branch, or a method declaration.
-/// The `coverage_sample` table should be sufficient to paint green/yellow/red
-/// lines in a UI.
+/// A `CoverageSample` record is a single coverage measurement. There will be a
+/// coverage measurement for each line of code, in each [`SourceFile`], in each
+/// coverage data file, in each [`RawUpload`]. If a report contains data from
+/// multiple `RawUpload`s, or if a single `RawUpload` contains multiple coverage
+/// data files, then `foo.rs:32` (for example) may have multiple
+/// `CoverageSample` records.
+///
+/// A line should have a `CoverageSample` record whether it's a statement, a
+/// method declaration, or a branch. The `coverage_sample` table should be
+/// sufficient to paint green/yellow/red lines in a UI.
 ///
 /// A line is fully covered if:
 /// - its `coverage_type` is [`CoverageType::Line`] or [`CoverageType::Method`]
@@ -134,7 +170,12 @@ pub struct SourceFile {
 ///   value is less than its `total_branches` value (but greater than 0)
 #[derive(PartialEq, Debug, Clone, Default)]
 pub struct CoverageSample {
-    pub id: Uuid,
+    /// The ID of the [`RawUpload`] that this `CoverageSample` was created from.
+    pub raw_upload_id: i64,
+
+    /// This `CoverageSample`'s ID, unique among other `CoverageSample`s from
+    /// the same [`RawUpload`].
+    pub local_sample_id: i64,
 
     /// Should be a hash of the file's path relative to the project's root.
     pub source_file_id: i64,
@@ -156,17 +197,24 @@ pub struct CoverageSample {
     pub total_branches: Option<i64>,
 }
 
-/// If raw coverage data includes information about which specific branches
-/// stemming from some line were or weren't covered, it can be stored here.
+/// The [`CoverageSample`] record for a branch stem captures whether (for
+/// example) 0/2, 1/2, or 2/2 possible branches were hit, and, if the data is
+/// available, there will be an associated `BranchesData` record for each
+/// possible branch recording whether that branch was hit.
 #[derive(PartialEq, Debug, Default, Clone)]
 pub struct BranchesData {
-    pub id: Uuid,
+    /// The ID of the [`RawUpload`] that this `BranchesData` was created from.
+    pub raw_upload_id: i64,
+
+    /// This `BranchesData`'s ID, unique among other `BranchesData`s from
+    /// the same [`RawUpload`].
+    pub local_branch_id: i64,
 
     /// Should be a hash of the file's path relative to the project's root.
     pub source_file_id: i64,
 
     /// The [`CoverageSample`] record for the line this branch stems from.
-    pub sample_id: Uuid,
+    pub local_sample_id: i64,
 
     /// The number of times this particular branch was run.
     pub hits: i64,
@@ -180,19 +228,25 @@ pub struct BranchesData {
     pub branch: String,
 }
 
-/// If raw coverage data includes additional metrics for methods (cyclomatic
-/// complexity, aggregated branch coverage) or details like its name or
-/// signature, they can be stored here.
+/// The [`CoverageSample`] record for a method declaration captures how many
+/// times it was hit. If there is additional method-specific data like
+/// cyclomatic complexity available, we can create an associated `MethodData`
+/// record to store it.
 #[derive(PartialEq, Debug, Default, Clone)]
 pub struct MethodData {
-    pub id: Uuid,
+    /// The ID of the [`RawUpload`] that this `MethodData` was created from.
+    pub raw_upload_id: i64,
+
+    /// This `MethodData`'s ID, unique among other `MethodData`s from
+    /// the same [`RawUpload`].
+    pub local_method_id: i64,
 
     /// Should be a hash of the file's path relative to the project's root.
     pub source_file_id: i64,
 
     /// The [`CoverageSample`] record for the line this method was declared on,
     /// if known.
-    pub sample_id: Option<Uuid>,
+    pub local_sample_id: i64,
 
     /// The line this method was declared on, in case it's known but we don't
     /// have a [`CoverageSample`] for it.
@@ -229,7 +283,12 @@ pub struct MethodData {
 /// [`CoverageSample`] records for them.
 #[derive(PartialEq, Debug, Default, Clone)]
 pub struct SpanData {
-    pub id: Uuid,
+    /// The ID of the [`RawUpload`] that this `SpanData` was created from.
+    pub raw_upload_id: i64,
+
+    /// This `SpanData`'s ID, unique among other `SpanData`s from
+    /// the same [`RawUpload`].
+    pub local_span_id: i64,
 
     /// Should be a hash of the file's path relative to the project's root.
     pub source_file_id: i64,
@@ -237,7 +296,7 @@ pub struct SpanData {
     /// A [`CoverageSample`] that is tied to this span, if there is a singular
     /// one to pick. If a span is for a subsection of a single line, we
     /// should be able to link a [`CoverageSample`].
-    pub sample_id: Option<Uuid>,
+    pub local_sample_id: Option<i64>,
 
     /// The number of times this span was run.
     pub hits: i64,
@@ -260,10 +319,9 @@ pub struct SpanData {
 pub struct ContextAssoc {
     /// Should be a hash of the context's `name` field.
     pub context_id: i64,
-    pub sample_id: Option<Uuid>,
-    pub branch_id: Option<Uuid>,
-    pub method_id: Option<Uuid>,
-    pub span_id: Option<Uuid>,
+    pub raw_upload_id: i64,
+    pub local_sample_id: Option<i64>,
+    pub local_span_id: Option<i64>,
 }
 
 /// Context that can be associated with measurements to allow querying/filtering
@@ -274,18 +332,16 @@ pub struct Context {
     pub id: i64,
     pub context_type: ContextType,
 
-    /// Some sort of unique name for this context, such as a test case name or a
-    /// CI results URI.
+    /// Some sort of unique name for this context, such as a test case name.
     pub name: String,
 }
 
-/// Details about an upload of coverage data including its flags, the path it
-/// was uploaded to, the CI job that uploaded it, or a link to the results of
-/// that CI job.
+/// Details about a Codecov upload including its flags, the path it was uploaded
+/// to, the CI job that uploaded it, and a link to the results of that CI job.
 #[derive(PartialEq, Debug, Default, Clone)]
-pub struct UploadDetails {
-    /// Should be a hash of the context's `name` field.
-    pub context_id: i64,
+pub struct RawUpload {
+    /// Should be a random i64.
+    pub id: i64,
 
     /// Unix timestamp in seconds.
     ///

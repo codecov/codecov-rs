@@ -2,9 +2,7 @@ with uploads as (
 select
   count(*) as count
 from
-  context
-where
-  context.context_type = 'Upload'
+  raw_upload
 ),
 test_cases as (
 select
@@ -38,4 +36,5 @@ from
 left join
   method_data
 on
-  coverage_sample.id = method_data.sample_id
+  coverage_sample.raw_upload_id = method_data.raw_upload_id
+  and coverage_sample.local_sample_id = method_data.local_sample_id
