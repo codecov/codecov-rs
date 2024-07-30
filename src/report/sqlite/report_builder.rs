@@ -235,7 +235,7 @@ impl<'a> ReportBuilder<SqliteReport> for SqliteReportBuilderTx<'a> {
             id: seahash::hash(path.as_bytes()) as i64,
             path,
         };
-        <models::SourceFile as Insertable<2>>::insert(&model, &self.conn)?;
+        model.insert(&self.conn)?;
         Ok(model)
     }
 
@@ -249,7 +249,7 @@ impl<'a> ReportBuilder<SqliteReport> for SqliteReportBuilderTx<'a> {
             context_type,
             name: name.to_string(),
         };
-        <models::Context as Insertable<3>>::insert(&model, &self.conn)?;
+        model.insert(&self.conn)?;
         Ok(model)
     }
 
@@ -259,7 +259,7 @@ impl<'a> ReportBuilder<SqliteReport> for SqliteReportBuilderTx<'a> {
     ) -> Result<models::CoverageSample> {
         // TODO handle error
         sample.local_sample_id = self.id_sequence.next().unwrap();
-        <models::CoverageSample as Insertable<8>>::insert(&sample, &self.conn)?;
+        sample.insert(&self.conn)?;
         Ok(sample)
     }
 
@@ -270,10 +270,7 @@ impl<'a> ReportBuilder<SqliteReport> for SqliteReportBuilderTx<'a> {
         for sample in &mut samples {
             sample.local_sample_id = self.id_sequence.next().unwrap();
         }
-        <models::CoverageSample as Insertable<8>>::multi_insert(
-            samples.iter().map(|v| &**v),
-            &self.conn,
-        )?;
+        models::CoverageSample::multi_insert(samples.iter().map(|v| &**v), &self.conn)?;
         Ok(())
     }
 
@@ -283,7 +280,7 @@ impl<'a> ReportBuilder<SqliteReport> for SqliteReportBuilderTx<'a> {
     ) -> Result<models::BranchesData> {
         // TODO handle error
         branch.local_branch_id = self.id_sequence.next().unwrap();
-        <models::BranchesData as Insertable<7>>::insert(&branch, &self.conn)?;
+        branch.insert(&self.conn)?;
         Ok(branch)
     }
 
@@ -294,17 +291,14 @@ impl<'a> ReportBuilder<SqliteReport> for SqliteReportBuilderTx<'a> {
         for branch in &mut branches {
             branch.local_branch_id = self.id_sequence.next().unwrap();
         }
-        <models::BranchesData as Insertable<7>>::multi_insert(
-            branches.iter().map(|v| &**v),
-            &self.conn,
-        )?;
+        models::BranchesData::multi_insert(branches.iter().map(|v| &**v), &self.conn)?;
         Ok(())
     }
 
     fn insert_method_data(&mut self, mut method: models::MethodData) -> Result<models::MethodData> {
         // TODO handle error
         method.local_method_id = self.id_sequence.next().unwrap();
-        <models::MethodData as Insertable<9>>::insert(&method, &self.conn)?;
+        method.insert(&self.conn)?;
         Ok(method)
     }
 
@@ -315,17 +309,14 @@ impl<'a> ReportBuilder<SqliteReport> for SqliteReportBuilderTx<'a> {
         for method in &mut methods {
             method.local_method_id = self.id_sequence.next().unwrap();
         }
-        <models::MethodData as Insertable<9>>::multi_insert(
-            methods.iter().map(|v| &**v),
-            &self.conn,
-        )?;
+        models::MethodData::multi_insert(methods.iter().map(|v| &**v), &self.conn)?;
         Ok(())
     }
 
     fn insert_span_data(&mut self, mut span: models::SpanData) -> Result<models::SpanData> {
         // TODO handle error
         span.local_span_id = self.id_sequence.next().unwrap();
-        <models::SpanData as Insertable<9>>::insert(&span, &self.conn)?;
+        span.insert(&self.conn)?;
         Ok(span)
     }
 
@@ -333,20 +324,17 @@ impl<'a> ReportBuilder<SqliteReport> for SqliteReportBuilderTx<'a> {
         for span in &mut spans {
             span.local_span_id = self.id_sequence.next().unwrap();
         }
-        <models::SpanData as Insertable<9>>::multi_insert(spans.iter().map(|v| &**v), &self.conn)?;
+        models::SpanData::multi_insert(spans.iter().map(|v| &**v), &self.conn)?;
         Ok(())
     }
 
     fn associate_context(&mut self, assoc: models::ContextAssoc) -> Result<models::ContextAssoc> {
-        <models::ContextAssoc as Insertable<4>>::insert(&assoc, &self.conn)?;
+        assoc.insert(&self.conn)?;
         Ok(assoc)
     }
 
     fn multi_associate_context(&mut self, assocs: Vec<&mut models::ContextAssoc>) -> Result<()> {
-        <models::ContextAssoc as Insertable<4>>::multi_insert(
-            assocs.iter().map(|v| &**v),
-            &self.conn,
-        )?;
+        models::ContextAssoc::multi_insert(assocs.iter().map(|v| &**v), &self.conn)?;
         Ok(())
     }
 
