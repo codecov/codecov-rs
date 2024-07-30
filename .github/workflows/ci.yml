@@ -58,22 +58,36 @@ jobs:
       - name: Run tests
         run: |
           cargo test
+  # This job runs tests, generates coverage data, and generates JUnit test
+  # results in a single test invocation and then uploads it all to Codecov.
+  # However, it doesn't print test results to stdout. If Codecov's failed test
+  # reporting is solid and we never need to see the results in the CI logs, we
+  # can delete the "normal" test step and just use this.
+  test-for-codecov:
+    name: Test (Upload to Codecov)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly
       - name: Install `cargo llvm-cov`
         uses: taiki-e/install-action@cargo-llvm-cov
-      - name: Collect coverage
+      - name: Run tests
         run: |
-          cargo llvm-cov --lcov --output-path lcov.info
-      - name: Upload to Codecov
+          cargo install cargo2junit
+          cargo llvm-cov --lcov --output-path lcov.info -- -Z unstable-options --format json --report-time | cargo2junit > results.xml
+      - name: Upload coverage data to Codecov
+        if: ${{ !cancelled() }}
         uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_ORG_TOKEN }}
-      - name: Generate JUnit test results
-        # Run tests again but with JSON output. Convert to junit then upload.
-        # The original format is nicer to look at in CI error messages.
-        run: |
-          cargo install cargo2junit
-          cargo test -- -Z unstable-options --format json --report-time | cargo2junit > results.xml
-      - name: Upload test results
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() }}
         uses: codecov/test-results-action@v1
         with:
           file: ./results.xml
