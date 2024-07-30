@@ -1,6 +1,5 @@
 -- See `src/report/models.rs` for complete, up-to-date schema documentation.
 
--- TODO: Measure size/perf impact of making this table `WITHOUT ROWID`
 CREATE TABLE source_file (
     -- This should be set to the hash of the `path` column so that we can
     -- distribute processing across multiple different hosts and they will
@@ -8,10 +7,9 @@ CREATE TABLE source_file (
     id INTEGER PRIMARY KEY,
 
     path VARCHAR NOT NULL
-);
+) WITHOUT ROWID;
 
 -- TODO: Allow distinguishing between raw reports within a single upload
--- TODO: Measure size/perf impact of making this table `WITHOUT ROWID`
 CREATE TABLE raw_upload (
     -- This should be set to a random 64-bit integer so that we can
     -- distribute processing across multiple different hosts and they will
@@ -30,9 +28,8 @@ CREATE TABLE raw_upload (
     env VARCHAR,
     session_type VARCHAR,
     session_extras VARCHAR -- JSON,
-);
+) WITHOUT ROWID;
 
--- TODO: Measure size/perf impact of making this table `WITHOUT ROWID`
 CREATE TABLE context (
     -- This should be set to the hash of the `name` column so that we can
     -- distribute processing across multiple different hosts and they will
@@ -41,9 +38,8 @@ CREATE TABLE context (
 
     context_type VARCHAR NOT NULL,
     name VARCHAR NOT NULL
-);
+) WITHOUT ROWID;
 
--- TODO: Measure size/perf impact of making this table `WITHOUT ROWID`
 CREATE TABLE context_assoc (
     context_id INTEGER REFERENCES context(id) NOT NULL,
 
@@ -55,10 +51,9 @@ CREATE TABLE context_assoc (
 --    FOREIGN KEY (raw_upload_id, local_sample_id) REFERENCES coverage_sample(raw_upload_id, local_sample_id),
 --    FOREIGN KEY (raw_upload_id, local_span_id) REFERENCES span_data(raw_upload_id, local_span_id),
 
-    PRIMARY KEY (context_id, raw_upload_id, local_sample_id, local_span_id)
-);
+    PRIMARY KEY (context_id, raw_upload_id, local_sample_id)
+) WITHOUT ROWID;
 
--- TODO: Measure size/perf impact of making this table `WITHOUT ROWID`
 CREATE TABLE coverage_sample (
     raw_upload_id INTEGER REFERENCES raw_upload(id) NOT NULL,
 
@@ -74,9 +69,8 @@ CREATE TABLE coverage_sample (
     total_branches INTEGER,
 
     PRIMARY KEY (raw_upload_id, local_sample_id)
-);
+) WITHOUT ROWID;
 
--- TODO: Measure size/perf impact of making this table `WITHOUT ROWID`
 CREATE TABLE branches_data (
     raw_upload_id INTEGER REFERENCES raw_upload(id) NOT NULL,
     local_sample_id INTEGER NOT NULL,
@@ -92,9 +86,8 @@ CREATE TABLE branches_data (
 
     FOREIGN KEY (raw_upload_id, local_sample_id) REFERENCES coverage_sample(raw_upload_id, local_sample_id),
     PRIMARY KEY (raw_upload_id, local_branch_id)
-);
+) WITHOUT ROWID;
 
--- TODO: Measure size/perf impact of making this table `WITHOUT ROWID`
 CREATE TABLE method_data (
     raw_upload_id INTEGER REFERENCES raw_upload(id) NOT NULL,
     local_sample_id INTEGER NOT NULL,
@@ -112,9 +105,8 @@ CREATE TABLE method_data (
 
     FOREIGN KEY (raw_upload_id, local_sample_id) REFERENCES coverage_sample(raw_upload_id, local_sample_id),
     PRIMARY KEY (raw_upload_id, local_method_id)
-);
+) WITHOUT ROWID;
 
--- TODO: Measure size/perf impact of making this table `WITHOUT ROWID`
 CREATE TABLE span_data (
     raw_upload_id INTEGER REFERENCES raw_upload(id) NOT NULL,
     local_sample_id INTEGER,
@@ -132,4 +124,4 @@ CREATE TABLE span_data (
 
     FOREIGN KEY (raw_upload_id, local_sample_id) REFERENCES coverage_sample(raw_upload_id, local_sample_id),
     PRIMARY KEY (raw_upload_id, local_span_id)
-);
+) WITHOUT ROWID;
