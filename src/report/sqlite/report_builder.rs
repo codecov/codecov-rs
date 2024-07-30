@@ -437,20 +437,10 @@ mod tests {
         assert_eq!(actual_file, expected_file);
 
         let duplicate_result = report_builder.insert_file(expected_file.path.clone());
-        match duplicate_result {
-            Err(CodecovError::SqliteError(rusqlite::Error::SqliteFailure(
-                rusqlite::ffi::Error {
-                    code: rusqlite::ffi::ErrorCode::ConstraintViolation,
-                    extended_code: 1555,
-                },
-                Some(s),
-            ))) => {
-                assert_eq!(s, String::from("UNIQUE constraint failed: source_file.id"));
-            }
-            _ => {
-                assert!(false);
-            }
-        }
+        assert_eq!(
+            duplicate_result.unwrap_err().to_string(),
+            "sqlite failure: 'UNIQUE constraint failed: source_file.id'"
+        );
     }
 
     #[test]
@@ -471,20 +461,10 @@ mod tests {
 
         let duplicate_result =
             report_builder.insert_context(expected_context.context_type, &expected_context.name);
-        match duplicate_result {
-            Err(CodecovError::SqliteError(rusqlite::Error::SqliteFailure(
-                rusqlite::ffi::Error {
-                    code: rusqlite::ffi::ErrorCode::ConstraintViolation,
-                    extended_code: 1555,
-                },
-                Some(s),
-            ))) => {
-                assert_eq!(s, String::from("UNIQUE constraint failed: context.id"));
-            }
-            _ => {
-                assert!(false);
-            }
-        }
+        assert_eq!(
+            duplicate_result.unwrap_err().to_string(),
+            "sqlite failure: 'UNIQUE constraint failed: context.id'"
+        );
     }
 
     #[test]
@@ -518,7 +498,7 @@ mod tests {
             actual_sample.local_sample_id
         );
         assert_eq!(actual_sample.local_sample_id, 0);
-        expected_sample.local_sample_id = actual_sample.local_sample_id.clone();
+        expected_sample.local_sample_id = actual_sample.local_sample_id;
         assert_eq!(actual_sample, expected_sample);
 
         let second_sample = report_builder
@@ -530,7 +510,7 @@ mod tests {
         );
         assert_ne!(actual_sample.local_sample_id, second_sample.local_sample_id);
         assert_eq!(second_sample.local_sample_id, 1);
-        expected_sample.local_sample_id = second_sample.local_sample_id.clone();
+        expected_sample.local_sample_id = second_sample.local_sample_id;
         assert_eq!(second_sample, expected_sample);
     }
 
@@ -631,7 +611,6 @@ mod tests {
             hits: 0,
             branch_format: models::BranchFormat::Condition,
             branch: "0:jump".to_string(),
-            ..Default::default()
         };
         let actual_branch = report_builder
             .insert_branches_data(expected_branch.clone())
@@ -1038,7 +1017,7 @@ mod tests {
             .unwrap();
 
         let context = report_builder
-            .insert_context(models::ContextType::TestCase, &"test_case".to_string())
+            .insert_context(models::ContextType::TestCase, "test_case")
             .unwrap();
 
         let expected_assoc = models::ContextAssoc {
@@ -1058,25 +1037,10 @@ mod tests {
         assert_eq!(actual_assoc, expected_assoc);
 
         let duplicate_result = report_builder.associate_context(expected_assoc.clone());
-        match duplicate_result {
-            Err(CodecovError::SqliteError(rusqlite::Error::SqliteFailure(
-                rusqlite::ffi::Error {
-                    code: rusqlite::ffi::ErrorCode::ConstraintViolation,
-                    extended_code: 1555,
-                },
-                Some(s),
-            ))) => {
-                assert_eq!(
-                    s,
-                    String::from(
-                        "UNIQUE constraint failed: context_assoc.context_id, context_assoc.raw_upload_id, context_assoc.local_sample_id, context_assoc.local_span_id"
-                    )
-                );
-            }
-            _ => {
-                assert!(false);
-            }
-        }
+        assert_eq!(
+            duplicate_result.unwrap_err().to_string(),
+            "sqlite failure: 'UNIQUE constraint failed: context_assoc.context_id, context_assoc.raw_upload_id, context_assoc.local_sample_id, context_assoc.local_span_id'"
+        );
     }
 
     #[test]
@@ -1124,7 +1088,7 @@ mod tests {
             })
             .collect();
 
-        let _ = report_builder
+        report_builder
             .multi_associate_context(assocs.iter_mut().collect())
             .unwrap();
 
@@ -1178,12 +1142,11 @@ mod tests {
         let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
 
         let tx = report_builder.transaction().unwrap();
-        match tx.build() {
-            Err(CodecovError::ReportBuilderError(s)) => {
-                assert_eq!(s, "called `build()` on a transaction".to_string())
-            }
-            _ => assert!(false),
-        }
+
+        assert_eq!(
+            tx.build().unwrap_err().to_string(),
+            "report builder error: 'called `build()` on a transaction'"
+        );
     }
 
     #[test]
