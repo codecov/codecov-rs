@@ -2,9 +2,10 @@ use std::{collections::HashMap, fmt, fmt::Debug};
 
 use winnow::{
     combinator::{
-        alt, delimited, empty, eof, opt, peek, preceded, separated, separated_pair, seq, terminated,
+        alt, cut_err, delimited, empty, eof, opt, peek, preceded, separated, separated_pair, seq,
+        terminated,
     },
-    error::{ContextError, ErrMode, ErrorKind, FromExternalError},
+    error::{ContextError, ErrMode, ErrorKind, FromExternalError, StrContext},
     stream::Stream,
     PResult, Parser, Stateful,
 };
@@ -117,6 +118,7 @@ pub fn coverage<S: StrStream, R: Report, B: ReportBuilder<R>>(
         // Examples: 0, 40
         parse_u32.map(PyreportCoverage::HitCount),
     ))
+    .context(StrContext::Label("coverage"))
     .parse_next(buf)
 }
 
@@ -136,6 +138,7 @@ pub fn coverage_type<S: StrStream, R: Report, B: ReportBuilder<R>>(
         alt(("\"b\"", "\"branch\"")).value(CoverageType::Branch),
         alt(("\"m\"", "\"method\"")).value(CoverageType::Method),
     ))
+    .context(StrContext::Label("coverage_type"))
     .parse_next(buf)
 }
 
@@ -154,6 +157,7 @@ pub fn complexity<S: StrStream, R: Report, B: ReportBuilder<R>>(
         .map(move |(covered, total)| Complexity::PathsTaken { covered, total }),
         parse_u32.map(Complexity::Total),
     ))
+    .context(StrContext::Label("complexity"))
     .parse_next(buf)
 }
 
@@ -211,6 +215,7 @@ where
         )),
         (ws, ']'),
     )
+    .context(StrContext::Label("missing_branches"))
     .parse_next(buf)
 }
 
@@ -244,7 +249,9 @@ pub fn partial_spans<S: StrStream, R: Report, B: ReportBuilder<R>>(
     );
     let span_with_coverage = delimited('[', span_with_coverage, ']');
 
-    delimited('[', separated(0.., span_with_coverage, (ws, ',', ws)), ']').parse_next(buf)
+    delimited('[', separated(0.., span_with_coverage, (ws, ',', ws)), ']')
+        .context(StrContext::Label("partial_spans"))
+        .parse_next(buf)
 }
 
 /// Parses a [`LineSession`]. Each [`LineSession`] corresponds to a
@@ -275,6 +282,7 @@ where
         complexity: opt(nullable(complexity)),
         _: ']',
     }}
+    .context(StrContext::Label("line_session"))
     .parse_next(buf)
 }
 
@@ -287,7 +295,9 @@ where
     S: StrStream,
     S: Stream<Slice = &'a str>,
 {
-    json_value.parse_next(buf)
+    json_value
+        .context(StrContext::Label("messages"))
+        .parse_next(buf)
 }
 
 /// Parses an individual [`RawLabel`] in a [`CoverageDatapoint`].
@@ -308,6 +318,7 @@ pub fn label<S: StrStream, R: Report, B: ReportBuilder<R>>(
         parse_u32.map(RawLabel::LabelId),
         parse_str.map(RawLabel::LabelName),
     ))
+    .context(StrContext::Label("label"))
     .parse_next(buf)?;
 
     let labels_index_key = match raw_label {
@@ -352,6 +363,7 @@ pub fn coverage_datapoint<S: StrStream, R: Report, B: ReportBuilder<R>>(
         labels: delimited('[', separated(0.., label, (ws, ',', ws)), ']'),
         _: ']',
     }}
+    .context(StrContext::Label("coverage_datapoint"))
     .parse_next(buf)?;
     Ok((datapoint.session_id, datapoint))
 }
@@ -387,6 +399,7 @@ where
         datapoints: opt(preceded((ws, ',', ws), nullable(delimited('[', separated(0.., coverage_datapoint, (ws, ',', ws)), ']')))),
         _: ']',
     }}
+    .context(StrContext::Label("report_line"))
     .parse_next(buf)?;
 
     // Fix issues like recording branch coverage with `CoverageType::Method`
@@ -425,7 +438,9 @@ where
     // delimeter between lines or part of `CHUNKS_FILE_END_OF_CHUNK`.
     let empty_line = peek(alt((eof, "\n"))).map(|_| None);
     let populated_line = report_line.map(Some);
-    alt((populated_line, empty_line)).parse_next(buf)
+    alt((populated_line, empty_line))
+        .context(StrContext::Label("report_line_or_empty"))
+        .parse_next(buf)
 }
 
 /// Each chunk may begin with a JSON object containing:
@@ -435,7 +450,9 @@ where
 pub fn chunk_header<S: StrStream, R: Report, B: ReportBuilder<R>>(
     buf: &mut ReportOutputStream<S, R, B>,
 ) -> PResult<JsonMap<String, JsonVal>> {
-    terminated(parse_object, '\n').parse_next(buf)
+    terminated(parse_object, '\n')
+        .context(StrContext::Label("chunk_header"))
+        .parse_next(buf)
 }
 
 /// Parses a "chunk". A chunk contains all of the line-by-line measurements for
@@ -455,8 +472,12 @@ where
     // New chunk, start back at line 0.
     buf.state.chunk.current_line = 0;
 
-    let report_lines: Vec<_> =
-        preceded(chunk_header, separated(1.., report_line_or_empty, '\n')).parse_next(buf)?;
+    let report_lines: Vec<_> = preceded(
+        cut_err(chunk_header),
+        cut_err(separated(1.., report_line_or_empty, '\n')),
+    )
+    .context(StrContext::Label("chunk"))
+    .parse_next(buf)?;
     let report_lines: Vec<ReportLine> = report_lines.into_iter().flatten().collect();
 
     utils::save_report_lines(report_lines.as_slice(), &mut buf.state)
@@ -482,7 +503,9 @@ where
 pub fn chunks_file_header<S: StrStream, R: Report, B: ReportBuilder<R>>(
     buf: &mut ReportOutputStream<S, R, B>,
 ) -> PResult<()> {
-    let header = terminated(parse_object, CHUNKS_FILE_HEADER_TERMINATOR).parse_next(buf)?;
+    let header = terminated(parse_object, CHUNKS_FILE_HEADER_TERMINATOR)
+        .context(StrContext::Label("chunks_file_header"))
+        .parse_next(buf)?;
 
     let labels_iter = header
         .get("labels_index")
@@ -518,6 +541,7 @@ where
         opt(chunks_file_header),
         separated(1.., chunk, CHUNKS_FILE_END_OF_CHUNK),
     )
+    .context(StrContext::Label("parse_chunks_file"))
     .parse_next(buf)?;
 
     Ok(())
@@ -526,6 +550,7 @@ where
 #[cfg(test)]
 mod tests {
     use mockall::predicate::*;
+    use winnow::error::AddContext;
 
     use super::*;
     use crate::report::{models::*, MockReport, MockReportBuilder};
@@ -544,6 +569,22 @@ mod tests {
         let parse_ctx = ParseCtx::new(report_builder, report_json_files, report_json_sessions);
 
         Ctx { parse_ctx }
+    }
+
+    fn create_context_error(contexts: Vec<StrContext>) -> ContextError {
+        let mut err = ContextError::new();
+        for context in contexts {
+            err = err.add_context(&"", context.clone());
+        }
+        err
+    }
+
+    fn backtrack_error_with_contexts(contexts: Vec<StrContext>) -> ErrMode<ContextError> {
+        ErrMode::Backtrack(create_context_error(contexts))
+    }
+
+    fn cut_error_with_contexts(contexts: Vec<StrContext>) -> ErrMode<ContextError> {
+        ErrMode::Cut(create_context_error(contexts))
     }
 
     fn stub_report_builder(report_builder: &mut MockReportBuilder<MockReport>) {
@@ -600,13 +641,48 @@ mod tests {
             ),
             ("true", Ok(PyreportCoverage::Partial())),
             // Malformed inputs
-            ("malformed", Err(ErrMode::Backtrack(ContextError::new()))),
-            ("false", Err(ErrMode::Backtrack(ContextError::new()))),
-            ("\"true\"", Err(ErrMode::Backtrack(ContextError::new()))),
-            ("\"1\"", Err(ErrMode::Backtrack(ContextError::new()))),
-            ("\"1/\"", Err(ErrMode::Backtrack(ContextError::new()))),
-            ("\"/2\"", Err(ErrMode::Backtrack(ContextError::new()))),
-            ("\"1/2", Err(ErrMode::Backtrack(ContextError::new()))),
+            (
+                "malformed",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "coverage",
+                )])),
+            ),
+            (
+                "false",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "coverage",
+                )])),
+            ),
+            (
+                "\"true\"",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "coverage",
+                )])),
+            ),
+            (
+                "\"1\"",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "coverage",
+                )])),
+            ),
+            (
+                "\"1/\"",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "coverage",
+                )])),
+            ),
+            (
+                "\"/2\"",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "coverage",
+                )])),
+            ),
+            (
+                "\"1/2",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "coverage",
+                )])),
+            ),
             // TODO: Make these cases error. Currently this parser accepts any number and
             // clamps/truncates to u32.
             ("3.4", Ok(PyreportCoverage::HitCount(3))),
@@ -690,19 +766,66 @@ mod tests {
                 }),
             ),
             // Malformed inputs
-            ("\"1\"", Err(ErrMode::Backtrack(ContextError::new()))),
-            ("[1, 5 5]", Err(ErrMode::Backtrack(ContextError::new()))),
-            ("[1, 5, 6]", Err(ErrMode::Backtrack(ContextError::new()))),
-            ("\"[1, 5]\"", Err(ErrMode::Backtrack(ContextError::new()))),
+            (
+                "\"1\"",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "complexity",
+                )])),
+            ),
+            (
+                "[1, 5 5]",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "complexity",
+                )])),
+            ),
+            (
+                "[1, 5, 6]",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "complexity",
+                )])),
+            ),
+            (
+                "\"[1, 5]\"",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "complexity",
+                )])),
+            ),
             (
                 "[\"1\", \"5\"]",
-                Err(ErrMode::Backtrack(ContextError::new())),
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "complexity",
+                )])),
             ),
-            ("[1, 5", Err(ErrMode::Backtrack(ContextError::new()))),
-            ("[1, ]", Err(ErrMode::Backtrack(ContextError::new()))),
-            ("[, 3]", Err(ErrMode::Backtrack(ContextError::new()))),
-            ("[1]", Err(ErrMode::Backtrack(ContextError::new()))),
-            ("one", Err(ErrMode::Backtrack(ContextError::new()))),
+            (
+                "[1, 5",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "complexity",
+                )])),
+            ),
+            (
+                "[1, ]",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "complexity",
+                )])),
+            ),
+            (
+                "[, 3]",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "complexity",
+                )])),
+            ),
+            (
+                "[1]",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "complexity",
+                )])),
+            ),
+            (
+                "one",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "complexity",
+                )])),
+            ),
             // TODO: Make these cases error. Currently the parser accepts any number and
             // clamps/truncates to u32 range.
             ("-3", Ok(Complexity::Total(0))),
@@ -759,41 +882,70 @@ mod tests {
                 ]),
             ),
             // Malformed inputs
-            ("[26, 28]", Err(ErrMode::Backtrack(ContextError::new()))),
-            ("[\"26\", 28]", Err(ErrMode::Backtrack(ContextError::new()))),
-            ("[0:jump, 28]", Err(ErrMode::Backtrack(ContextError::new()))),
+            (
+                "[26, 28]",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "missing_branches",
+                )])),
+            ),
+            (
+                "[\"26\", 28]",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "missing_branches",
+                )])),
+            ),
+            (
+                "[0:jump, 28]",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "missing_branches",
+                )])),
+            ),
             (
                 "\"0:jump\", \"28\"",
-                Err(ErrMode::Backtrack(ContextError::new())),
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "missing_branches",
+                )])),
             ),
             (
                 "\"[\"26\", \"28\"]\"",
-                Err(ErrMode::Backtrack(ContextError::new())),
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "missing_branches",
+                )])),
             ),
             (
                 "[\"26\", \"28\"",
-                Err(ErrMode::Backtrack(ContextError::new())),
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "missing_branches",
+                )])),
             ),
             (
                 // Can't switch types in the middle of a list
                 "[\"0:jump\", \"0:1\", \"26\"]",
-                Err(ErrMode::Backtrack(ContextError::new())),
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "missing_branches",
+                )])),
             ),
             (
                 // Can't switch types in the middle of a list
                 "[\"0:1\", \"0:jump\", \"26\"]",
-                Err(ErrMode::Backtrack(ContextError::new())),
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "missing_branches",
+                )])),
             ),
             (
                 // Can't switch types in the middle of a list
                 "[\"26\", \"0:jump\", \"0:1\"]",
-                Err(ErrMode::Backtrack(ContextError::new())),
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "missing_branches",
+                )])),
             ),
             (
                 // Can't switch types in the middle of a list. Actually expected this to pass
                 // because `"26"` is a valid `Condition` value, but it fails
                 "[\"26\", \"0:jump\"]",
-                Err(ErrMode::Backtrack(ContextError::new())),
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "missing_branches",
+                )])),
             ),
         ];
 
@@ -873,22 +1025,48 @@ mod tests {
                 }]),
             ),
             // Malformed inputs
-            ("[5, 10, 3]", Err(ErrMode::Backtrack(ContextError::new()))),
-            ("[[5, 10, 3]", Err(ErrMode::Backtrack(ContextError::new()))),
-            ("[5, 10, 3]]", Err(ErrMode::Backtrack(ContextError::new()))),
+            (
+                "[5, 10, 3]",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "partial_spans",
+                )])),
+            ),
+            (
+                "[[5, 10, 3]",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "partial_spans",
+                )])),
+            ),
+            (
+                "[5, 10, 3]]",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "partial_spans",
+                )])),
+            ),
             (
                 "[[\"5\", \"10\", 3]]",
-                Err(ErrMode::Backtrack(ContextError::new())),
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "partial_spans",
+                )])),
             ),
             (
                 "[[\"5\", \"null\", 3]]",
-                Err(ErrMode::Backtrack(ContextError::new())),
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "partial_spans",
+                )])),
             ),
             (
                 "[[5, 10, 3, 5]]",
-                Err(ErrMode::Backtrack(ContextError::new())),
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "partial_spans",
+                )])),
             ),
-            ("[[5, 3]]", Err(ErrMode::Backtrack(ContextError::new()))),
+            (
+                "[[5, 3]]",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "partial_spans",
+                )])),
+            ),
             // TODO: Reject when end_col is smaller than start_col
             (
                 "[[5, 3, 5]]",
@@ -986,16 +1164,55 @@ mod tests {
                 }),
             ),
             // Malformed inputs
-            ("[0]", Err(ErrMode::Backtrack(ContextError::new()))),
-            ("[0, 1", Err(ErrMode::Backtrack(ContextError::new()))),
-            ("0, 1]", Err(ErrMode::Backtrack(ContextError::new()))),
-            ("[0, null]", Err(ErrMode::Backtrack(ContextError::new()))),
-            ("[null, 1]", Err(ErrMode::Backtrack(ContextError::new()))),
-            ("[\"0\", 1]", Err(ErrMode::Backtrack(ContextError::new()))),
-            ("[0, \"1\"]", Err(ErrMode::Backtrack(ContextError::new()))),
+            (
+                "[0]",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "line_session",
+                )])),
+            ),
+            (
+                "[0, 1",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "line_session",
+                )])),
+            ),
+            (
+                "0, 1]",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "line_session",
+                )])),
+            ),
+            (
+                "[0, null]",
+                Err(backtrack_error_with_contexts(vec![
+                    StrContext::Label("coverage"),
+                    StrContext::Label("line_session"),
+                ])),
+            ),
+            (
+                "[null, 1]",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "line_session",
+                )])),
+            ),
+            (
+                "[\"0\", 1]",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "line_session",
+                )])),
+            ),
+            (
+                "[0, \"1\"]",
+                Err(backtrack_error_with_contexts(vec![
+                    StrContext::Label("coverage"),
+                    StrContext::Label("line_session"),
+                ])),
+            ),
             (
                 "[0, 1, null, null, null, null]",
-                Err(ErrMode::Backtrack(ContextError::new())),
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "line_session",
+                )])),
             ),
             (
                 // TODO: Should fail. `partials` must be preceded by `branches` or `null` but it
@@ -1098,7 +1315,9 @@ mod tests {
             buf.input = test_case;
             assert_eq!(
                 label.parse_next(&mut buf),
-                Err(ErrMode::Backtrack(ContextError::new()))
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "label"
+                )]))
             );
         }
     }
@@ -1178,28 +1397,53 @@ mod tests {
         assert!(buf.state.labels_index.contains_key("3"));
 
         let invalid_test_cases = [
-            ("[]", Err(ErrMode::Backtrack(ContextError::new()))),
-            ("[1, 2]", Err(ErrMode::Backtrack(ContextError::new()))),
+            (
+                "[]",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "coverage_datapoint",
+                )])),
+            ),
+            (
+                "[1, 2]",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "coverage_datapoint",
+                )])),
+            ),
             (
                 "[1, 2, \"b\"]",
-                Err(ErrMode::Backtrack(ContextError::new())),
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "coverage_datapoint",
+                )])),
             ),
             (
                 "[1, 2, \"b\", []",
-                Err(ErrMode::Backtrack(ContextError::new())),
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "coverage_datapoint",
+                )])),
             ),
-            ("", Err(ErrMode::Backtrack(ContextError::new()))),
+            (
+                "",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "coverage_datapoint",
+                )])),
+            ),
             (
                 "[1, 2, null, []",
-                Err(ErrMode::Backtrack(ContextError::new())),
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "coverage_datapoint",
+                )])),
             ),
             (
                 "1, 2, null, []]",
-                Err(ErrMode::Backtrack(ContextError::new())),
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "coverage_datapoint",
+                )])),
             ),
             (
                 "[1, 2, null, [test_case, test_case_2]",
-                Err(ErrMode::Backtrack(ContextError::new())),
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "coverage_datapoint",
+                )])),
             ),
         ];
         for test_case in invalid_test_cases {
@@ -1386,31 +1630,32 @@ mod tests {
             (
                 // Unquoted coverage type
                 "[1, \"m\", [[0, 1]], null, null, [[0, 1, m, [\"test_case\"]]]]",
-                Err(ErrMode::Backtrack(ContextError::new())),
+                Err(backtrack_error_with_contexts(vec![StrContext::Label("report_line")])),
             ),
             (
                 // Quoted coverage field
                 "[\"1\", \"m\", [[0, 1]], null, null, [[0, 1, \"m\", [\"test_case\"]]]]",
-                Err(ErrMode::Backtrack(ContextError::new())),
+                Err(backtrack_error_with_contexts(vec![StrContext::Label("coverage"), StrContext::Label("report_line")])),
             ),
             (
                 // Missing closing brace
                 "[1, \"m\", [[0, 1]], null, null, [[0, 1, \"m\", [\"test_case\"]]]",
-                Err(ErrMode::Backtrack(ContextError::new())),
+                Err(backtrack_error_with_contexts(vec![StrContext::Label("report_line")])),
             ),
             (
                 // Trailing comma
                 "[1, \"m\", [[0, 1]], null, null,]",
-                Err(ErrMode::Backtrack(ContextError::new())),
+                Err(backtrack_error_with_contexts(vec![StrContext::Label("report_line")])),
             ),
             (
                 // Missing `sessions`
                 "[1, \"m\"]",
-                Err(ErrMode::Backtrack(ContextError::new())),
+                Err(backtrack_error_with_contexts(vec![StrContext::Label("report_line")])),
             ),
         ];
 
         for test_case in test_cases {
+            println!("testing {:?}", test_case.0);
             buf.input = test_case.0;
             assert_eq!(report_line.parse_next(&mut buf), test_case.1);
         }
@@ -1512,17 +1757,17 @@ mod tests {
             (
                 // Quoted coverage field
                 "[\"1\", \"m\", [[0, 1]], null, null, [[0, 1, \"m\", [\"test_case\"]]]]",
-                Err(ErrMode::Backtrack(ContextError::new())),
+                Err(backtrack_error_with_contexts(vec![])),
             ),
             (
                 // Missing closing brace
                 "[1, \"m\", [[0, 1]], null, null, [[0, 1, \"m\", [\"test_case\"]]]",
-                Err(ErrMode::Backtrack(ContextError::new())),
+                Err(backtrack_error_with_contexts(vec![])),
             ),
             (
                 // Trailing comma
                 "[1, \"m\", [[0, 1]], null, null,]",
-                Err(ErrMode::Backtrack(ContextError::new())),
+                Err(backtrack_error_with_contexts(vec![])),
             ),
         ];
         let expected_line_count = invalid_test_cases.len();
@@ -1554,14 +1799,31 @@ mod tests {
                 )])),
             ),
             // Missing newline
-            ("{}", Err(ErrMode::Backtrack(ContextError::new()))),
+            (
+                "{}",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "chunk_header",
+                )])),
+            ),
             // Missing dict and newline
-            ("", Err(ErrMode::Backtrack(ContextError::new()))),
+            (
+                "",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "chunk_header",
+                )])),
+            ),
             // Missing dict
-            ("\n", Err(ErrMode::Backtrack(ContextError::new()))),
+            (
+                "\n",
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "chunk_header",
+                )])),
+            ),
             (
                 "present_sessions: []",
-                Err(ErrMode::Backtrack(ContextError::new())),
+                Err(backtrack_error_with_contexts(vec![StrContext::Label(
+                    "chunk_header",
+                )])),
             ),
         ];
 
@@ -1616,18 +1878,48 @@ mod tests {
             ),
             // Malformed
             // Missing newline after header
-            ("{}", (Err(ErrMode::Backtrack(ContextError::new())), 0)),
+            (
+                "{}",
+                (
+                    Err(cut_error_with_contexts(vec![
+                        StrContext::Label("chunk_header"),
+                        StrContext::Label("chunk"),
+                    ])),
+                    0,
+                ),
+            ),
             // Missing header
-            ("\n\n", (Err(ErrMode::Backtrack(ContextError::new())), 0)),
+            (
+                "\n\n",
+                (
+                    Err(cut_error_with_contexts(vec![
+                        StrContext::Label("chunk_header"),
+                        StrContext::Label("chunk"),
+                    ])),
+                    0,
+                ),
+            ),
             (
                 // Malformed report line. Attempting the parse still increments the line count.
                 "{}\n[1, null, [[0, 1]]\n\n",
-                (Err(ErrMode::Backtrack(ContextError::new())), 1),
+                (
+                    Err(cut_error_with_contexts(vec![
+                        StrContext::Label("report_line_or_empty"),
+                        StrContext::Label("chunk"),
+                    ])),
+                    1,
+                ),
             ),
             (
                 // Malformed header
                 "{[]}\n\n",
-                (Err(ErrMode::Backtrack(ContextError::new())), 0),
+                (
+                    Err(cut_error_with_contexts(vec![
+                        StrContext::Label("chunk_header"),
+                        StrContext::Label("chunk"),
+                    ])),
+                    0,
+                ),
             ),
         ];
 
@@ -1684,17 +1976,17 @@ mod tests {
                 "{\"not_labels_index\": {\"test_name_2\": \"test_name_2\"}}\n<<<<< end_of_header >>>>>\n",
                 Ok(()),
             ),
-            ("{", Err(ErrMode::Backtrack(ContextError::new()))),
-            ("", Err(ErrMode::Backtrack(ContextError::new()))),
+            ("{", Err(backtrack_error_with_contexts(vec![StrContext::Label("chunks_file_header")]))),
+            ("", Err(backtrack_error_with_contexts(vec![StrContext::Label("chunks_file_header")]))),
             (
                 // Missing terminator
                 "{\"labels_index\": {\"1\": \"test_name\"}}",
-                Err(ErrMode::Backtrack(ContextError::new())),
+                Err(backtrack_error_with_contexts(vec![StrContext::Label("chunks_file_header")])),
             ),
             (
                 // Missing newline before terminator
                 "{\"labels_index\": {\"1\": \"test_name\"}}<<<<< end_of_header >>>>>\n",
-                Err(ErrMode::Backtrack(ContextError::new())),
+                Err(backtrack_error_with_contexts(vec![StrContext::Label("chunks_file_header")])),
             ),
         ];
 
@@ -1737,14 +2029,14 @@ mod tests {
             (
                 // Header but 0 chunks
                 "{}\n<<<<< end_of_header >>>>>\n\n",
-                (Err(ErrMode::Backtrack(ContextError::new())), 0, 0),
+                (Err(cut_error_with_contexts(vec![StrContext::Label("chunk_header"), StrContext::Label("chunk"), StrContext::Label("parse_chunks_file")])), 0, 0),
             ),
             // No header (fine) but 0 chunks
-            ("", (Err(ErrMode::Backtrack(ContextError::new())), 0, 0)),
+            ("", (Err(cut_error_with_contexts(vec![StrContext::Label("chunk_header"), StrContext::Label("chunk"), StrContext::Label("parse_chunks_file")])), 0, 0)),
             (
                 // Malformed report line. Attempting the line parse still increments the line count.
                 "{}\n[1, null, [[0, 1]]\n<<<<< end_of_chunk >>>>>\n{}\n\n",
-                (Err(ErrMode::Backtrack(ContextError::new())), 0, 1)
+                (Err(cut_error_with_contexts(vec![StrContext::Label("report_line_or_empty"), StrContext::Label("chunk"), StrContext::Label("parse_chunks_file")])), 0, 1)
             ),
         ];
 
