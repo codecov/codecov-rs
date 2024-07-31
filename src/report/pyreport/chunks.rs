@@ -755,7 +755,7 @@ mod tests {
         let db_path = ctx.temp_dir.path().join("test.db");
         let report = SqliteReport::new(db_path).unwrap();
 
-        let test_cases: &[(&[&dyn rusqlite::ToSql], (i64, JsonVal))] = &[
+        let test_cases = &[
             (
                 rusqlite::params![
                     1,
@@ -827,22 +827,19 @@ mod tests {
         // Malformed
         assert!(
             format_coverage(&None, &Some(2), &None).is_err_and(|e| match e {
-                CodecovError::PyreportConversionError(s) =>
-                    s == "incomplete coverage data".to_string(),
+                CodecovError::PyreportConversionError(s) => s == "incomplete coverage data",
                 _ => false,
             })
         );
         assert!(
             format_coverage(&None, &None, &Some(4)).is_err_and(|e| match e {
-                CodecovError::PyreportConversionError(s) =>
-                    s == "incomplete coverage data".to_string(),
+                CodecovError::PyreportConversionError(s) => s == "incomplete coverage data",
                 _ => false,
             })
         );
         assert!(
             format_coverage(&None, &None, &None).is_err_and(|e| match e {
-                CodecovError::PyreportConversionError(s) =>
-                    s == "incomplete coverage data".to_string(),
+                CodecovError::PyreportConversionError(s) => s == "incomplete coverage data",
                 _ => false,
             })
         );

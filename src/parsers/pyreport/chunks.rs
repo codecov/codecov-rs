@@ -177,10 +177,11 @@ pub fn complexity<S: StrStream, R: Report, B: ReportBuilder<R>>(
 /// [There may yet be more ways this shows
 /// up](https://github.com/codecov/worker/blob/07405e0ae925f00aa7bb3e2d828537010901154b/services/report/languages/cobertura.py#L112-L114).
 /// We'll try our best, and that'll have to do.
-pub fn missing_branches<'a, S: StrStream, R: Report, B: ReportBuilder<R>>(
+pub fn missing_branches<'a, S, R: Report, B: ReportBuilder<R>>(
     buf: &mut ReportOutputStream<S, R, B>,
 ) -> PResult<Vec<MissingBranch>>
 where
+    S: StrStream,
     S: Stream<Slice = &'a str>,
 {
     let block_and_branch = separated_pair(parse_u32, ':', parse_u32);
@@ -254,10 +255,11 @@ pub fn partial_spans<S: StrStream, R: Report, B: ReportBuilder<R>>(
 /// that session.
 ///
 /// Trailing null fields may be omitted.
-pub fn line_session<'a, S: StrStream, R: Report, B: ReportBuilder<R>>(
+pub fn line_session<'a, S, R: Report, B: ReportBuilder<R>>(
     buf: &mut ReportOutputStream<S, R, B>,
 ) -> PResult<LineSession>
 where
+    S: StrStream,
     S: Stream<Slice = &'a str>,
 {
     seq! {LineSession {
@@ -278,10 +280,11 @@ where
 
 /// No idea what this field contains. Guessing it's JSON so if we ever encounter
 /// it we can at least consume it off the stream and continue parsing.
-pub fn messages<'a, S: StrStream, R: Report, B: ReportBuilder<R>>(
+pub fn messages<'a, S, R: Report, B: ReportBuilder<R>>(
     buf: &mut ReportOutputStream<S, R, B>,
 ) -> PResult<JsonVal>
 where
+    S: StrStream,
     S: Stream<Slice = &'a str>,
 {
     json_value.parse_next(buf)
@@ -360,10 +363,11 @@ pub fn coverage_datapoint<S: StrStream, R: Report, B: ReportBuilder<R>>(
 /// This parser performs all the writes it can to the output
 /// stream and only returns a `ReportLine` for tests. The `report_line_or_empty`
 /// parser which wraps this and supports empty lines returns `Ok(())`.
-pub fn report_line<'a, S: StrStream, R: Report, B: ReportBuilder<R>>(
+pub fn report_line<'a, S, R: Report, B: ReportBuilder<R>>(
     buf: &mut ReportOutputStream<S, R, B>,
 ) -> PResult<ReportLine>
 where
+    S: StrStream,
     S: Stream<Slice = &'a str>,
 {
     let line_no = buf.state.chunk.current_line;
@@ -407,10 +411,11 @@ where
 ///
 /// The `report_line` parser writes all the data it can to the output
 /// stream so we don't actually need to return anything to our caller.
-pub fn report_line_or_empty<'a, S: StrStream, R: Report, B: ReportBuilder<R>>(
+pub fn report_line_or_empty<'a, S, R: Report, B: ReportBuilder<R>>(
     buf: &mut ReportOutputStream<S, R, B>,
 ) -> PResult<Option<ReportLine>>
 where
+    S: StrStream,
     S: Stream<Slice = &'a str>,
 {
     buf.state.chunk.current_line += 1;
@@ -440,10 +445,11 @@ pub fn chunk_header<S: StrStream, R: Report, B: ReportBuilder<R>>(
 /// Each new chunk will reset `buf.state.chunk.current_line` to 0 when it starts
 /// and increment `buf.state.chunk.index` when it ends so that the next chunk
 /// can associate its data with the correct file.
-pub fn chunk<'a, S: StrStream, R: Report, B: ReportBuilder<R>>(
+pub fn chunk<'a, S, R: Report, B: ReportBuilder<R>>(
     buf: &mut ReportOutputStream<S, R, B>,
 ) -> PResult<()>
 where
+    S: StrStream,
     S: Stream<Slice = &'a str>,
 {
     // New chunk, start back at line 0.
@@ -501,10 +507,11 @@ pub fn chunks_file_header<S: StrStream, R: Report, B: ReportBuilder<R>>(
 
 /// Parses a chunks file. A chunks file contains an optional header and a series
 /// of 1 or more "chunks" separated by an `CHUNKS_FILE_END_OF_CHUNK` terminator.
-pub fn parse_chunks_file<'a, S: StrStream, R: Report, B: ReportBuilder<R>>(
+pub fn parse_chunks_file<'a, S, R: Report, B: ReportBuilder<R>>(
     buf: &mut ReportOutputStream<S, R, B>,
 ) -> PResult<()>
 where
+    S: StrStream,
     S: Stream<Slice = &'a str>,
 {
     let _: Vec<_> = preceded(
@@ -1692,7 +1699,7 @@ mod tests {
         ];
 
         for test_case in test_cases {
-            buf.input = &test_case.0;
+            buf.input = test_case.0;
             assert_eq!(chunks_file_header.parse_next(&mut buf), test_case.1);
         }
         assert_eq!(buf.state.labels_index.len(), 2);
