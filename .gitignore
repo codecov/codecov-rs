@@ -16,3 +16,6 @@ target/
 
 # Vim swapfiles
 .*.sw*
+
+/reports
+lcov.info

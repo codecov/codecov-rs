@@ -3,6 +3,13 @@ name = "codecov-rs"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = ["pyreport"]
+pyreport = []
+
+[profile.release]
+debug = 1
+
 [dependencies]
 rusqlite = { version = "0.31.0", features = ["bundled", "limits"] }
 rusqlite_migration = { version = "1.2.0", features = ["from-directory"] }
@@ -31,10 +38,10 @@ winnow = "0.5.34"
 serde_json = "1.0.117"
 
 [dev-dependencies]
-tempfile = "3.9.0"
+divan = "0.1.14"
 mockall = { version = "0.13.0", features = ["nightly"] }
+tempfile = "3.9.0"
 
-[features]
-default = ["pyreport"]
-
-pyreport = []
+[[bench]]
+name = "pyreport"
+harness = false
