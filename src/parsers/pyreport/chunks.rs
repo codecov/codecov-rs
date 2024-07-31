@@ -472,15 +472,19 @@ where
     // New chunk, start back at line 0.
     buf.state.chunk.current_line = 0;
 
-    let report_lines: Vec<_> = preceded(
+    let empty_chunk = terminated("null", peek(alt((eof, "\n")))).map(|_| Vec::new());
+    let report_lines = preceded(
         cut_err(chunk_header),
         cut_err(separated(1.., report_line_or_empty, '\n')),
-    )
-    .context(StrContext::Label("chunk"))
-    .parse_next(buf)?;
-    let report_lines: Vec<ReportLine> = report_lines.into_iter().flatten().collect();
+    );
 
-    utils::save_report_lines(report_lines.as_slice(), &mut buf.state)
+    let parsed_lines: Vec<_> = alt((empty_chunk, report_lines))
+        .context(StrContext::Label("chunk"))
+        .parse_next(buf)?;
+
+    let parsed_lines: Vec<ReportLine> = parsed_lines.into_iter().flatten().collect();
+
+    utils::save_report_lines(parsed_lines.as_slice(), &mut buf.state)
         .map_err(|e| ErrMode::from_external_error(buf, ErrorKind::Fail, e))?;
 
     // Advance our chunk index so we can associate the data from the next chunk with
@@ -1876,6 +1880,8 @@ mod tests {
                 "{}\n[1, null, [[0, 1]]]\n<<<<< end_of_chunk >>>>>\n\n",
                 (Ok(()), 2),
             ),
+            // Chunks can have no header or report lines and only the text "null"
+            ("null\n", (Ok(()), 0)),
             // Malformed
             // Missing newline after header
             (
