@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-rusqlite = { version = "0.30.0", features = ["bundled", "limits"] }
-rusqlite_migration = { version = "1.1.0", features = ["from-directory"] }
+rusqlite = { version = "0.31.0", features = ["bundled", "limits"] }
+rusqlite_migration = { version = "1.2.0", features = ["from-directory"] }
 rand = "0.8.5"
 
 # SeaHash chosen due to:
@@ -32,7 +32,7 @@ serde_json = "1.0.117"
 
 [dev-dependencies]
 tempfile = "3.9.0"
-mockall = { version = "0.12.1", features = ["nightly"] }
+mockall = { version = "0.13.0", features = ["nightly"] }
 
 [features]
 default = ["pyreport"]
