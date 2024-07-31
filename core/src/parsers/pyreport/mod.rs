@@ -3,7 +3,6 @@ use std::{fs::File, path::PathBuf};
 use memmap2::Mmap;
 use winnow::Parser;
 
-use super::common::ReportBuilderCtx;
 use crate::{
     error::{CodecovError, Result},
     report::{ReportBuilder, SqliteReport, SqliteReportBuilder, SqliteReportBuilderTx},
@@ -72,27 +71,19 @@ fn parse_pyreport_with_builder(
     // and prevent us from consuming `report_builder` to actually build a
     // `SqliteReport`.
     {
-        let report_builder_tx = report_builder.transaction()?;
+        let mut report_builder_tx = report_builder.transaction()?;
 
         // Memory-map the input file so we don't have to read the whole thing into RAM
         let mmap_handle = unsafe { Mmap::map(report_json_file)? };
-        let buf = unsafe { std::str::from_utf8_unchecked(&mmap_handle[..]) };
-        let mut stream =
-            report_json::ReportOutputStream::<&str, SqliteReport, SqliteReportBuilderTx> {
-                input: buf,
-                state: ReportBuilderCtx::new(report_builder_tx),
-            };
-        let (files, sessions) = report_json::parse_report_json
-            .parse_next(&mut stream)
-            .map_err(|e| e.into_inner().unwrap_or_default())
-            .map_err(CodecovError::ParserError)?;
+        let report_json::ParsedReportJson { files, sessions } =
+            report_json::parse_report_json(&mmap_handle, &mut report_builder_tx)?;
 
         // Replace our mmap handle so the first one can be unmapped
         let mmap_handle = unsafe { Mmap::map(chunks_file)? };
         let buf = unsafe { std::str::from_utf8_unchecked(&mmap_handle[..]) };
 
         // Move `report_builder` from the report JSON's parse context to this one
-        let chunks_ctx = chunks::ParseCtx::new(stream.state.report_builder, files, sessions);
+        let chunks_ctx = chunks::ParseCtx::new(report_builder_tx, files, sessions);
         let mut chunks_stream =
             chunks::ReportOutputStream::<&str, SqliteReport, SqliteReportBuilderTx> {
                 input: buf,

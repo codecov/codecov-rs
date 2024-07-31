@@ -1,827 +1,411 @@
-use std::collections::HashMap;
+//! Parses a "report JSON" object which contains information about the files and
+//! "sessions" in a report. A session is more-or-less a single upload, and they
+//! are represented in our schema as a "context" which may be tied to a line.
+//!
+//! At a high level, the format looks something like:
+//! ```json
+//! {
+//!     "files": {
+//!         "filename": ReportFileSummary,
+//!         ...
+//!     },
+//!     "sessions": {
+//!         "session index": Session,
+//!         ...
+//!     }
+//! }
+//! ```
+//!
+//! The types can only be completely understood by reading their implementations
+//! in our Python code:
+//! - [`ReportFileSummary`](https://github.com/codecov/shared/blob/e97a9f422a6e224b315d6dc3821f9f5ebe9b2ddd/shared/reports/types.py#L361-L367)
+//! - [`Session`](https://github.com/codecov/shared/blob/e97a9f422a6e224b315d6dc3821f9f5ebe9b2ddd/shared/utils/sessions.py#L111-L128O)
+//!
+//! ## Files
+//!
+//! The `files` are key-value pairs where the key is a filename and the value is
+//! a `ReportFileSummary`. We primarily care about the chunks_index field and
+//! can compute the totals on-demand later.
+//!
+//! The format is messy and can only be fully understood by reading the Python
+//! source in our `shared` repository's
+//! [`shared/reports/resources.py`](https://github.com/codecov/shared/tree/main/shared/reports/resources.py) and
+//! [`shared/reports/types.py`](https://github.com/codecov/shared/blob/main/shared/reports/types.py).
+//! Nevertheless, the common case will be described here.
+//!
+//! At a high level, the input looks like:
+//! ```notrust
+//! "filename.rs": [
+//!     chunks_index: int,
+//!     file_totals: ReportTotals,
+//!     session_totals: null, // (formerly SessionTotalsArray, but ignored now)
+//!     diff_totals: ReportTotals (probably),
+//! ]
+//! ```
+//! with `int` being normal and the other types being from our Python code:
+//! - [`ReportFileSummary`](https://github.com/codecov/shared/blob/e97a9f422a6e224b315d6dc3821f9f5ebe9b2ddd/shared/reports/types.py#L361-L367)
+//! - [`ReportTotals`](https://github.com/codecov/shared/blob/e97a9f422a6e224b315d6dc3821f9f5ebe9b2ddd/shared/reports/types.py#L30-L45)
+//! - [`SessionTotalsArray`](https://github.com/codecov/shared/blob/e97a9f422a6e224b315d6dc3821f9f5ebe9b2ddd/shared/reports/types.py#L263-L272)
+//!
+//! `SessionTotalsArray` no longer exists, but older reports may still have it.
+//! It's a dict mapping a session ID to a `SessionTotals` (which is just a type
+//! alias for `ReportTotals` and a "meta" key with extra information including
+//! how many sessions there are in the map, and old reports may still have it.
+//! There's an even older format which is just a flat list. In any case, we
+//! ignore the field now.
+//!
+//! Input example:
+//! ```json
+//!    "src/report.rs": [
+//!      0,             # index in chunks
+//!      [              # file totals
+//!        0,           # > files
+//!        45,          # > lines
+//!        45,          # > hits
+//!        0,           # > misses
+//!        0,           # > partials
+//!        "100",       # > coverage %
+//!        0,           # > branches
+//!        0,           # > methods
+//!        0,           # > messages
+//!        0,           # > sessions
+//!        0,           # > complexity
+//!        0,           # > complexity_total
+//!        0            # > diff
+//!      ],
+//!      {              # session totals (usually null nowadays)
+//!        "0": [       # > key: session id
+//!          0,         # > files
+//!          45,        # > lines
+//!          45,        # > hits
+//!          0,         # > misses
+//!          0,         # > partials
+//!          "100"      # > coverage
+//!        ],
+//!        "meta": {
+//!          "session_count": 1
+//!        }
+//!      },
+//!      null           # diff totals
+//!    ],
+//! ```
+//!
+//! ## Sessions
+//!
+//! The `sessions` are key-value pairs where the key is a session index and the
+//! value is an encoded `Session`. A session essentially just an upload. We can
+//! compute session-specific coverage totals on-demand later and only care about
+//! other details for now.
+//!
+//! The format is messy and can only be fully understood by reading the Python
+//! source in our `shared` repository's
+//! [`shared/reports/resources.py`](https://github.com/codecov/shared/tree/main/shared/reports/resources.py),
+//! [`shared/reports/types.py`](https://github.com/codecov/shared/blob/main/shared/reports/types.py),
+//! and [`shared/utils/sessions.py`](https://github.com/codecov/shared/blob/main/shared/utils/sessions.py).
+//! Nevertheless, the common case will be described here.
+//!
+//! At a high level, the input looks like:
+//! ```notrust
+//! "session index": [
+//!     "t": ReportTotals,          # Coverage totals for this report
+//!     "d": int,                   # time
+//!     "a": str,                   # archive (URL of raw upload)
+//!     "f": list[str],             # flags
+//!     "c": str,                   # provider
+//!     "n": str,                   # build
+//!     "N": str,                   # name
+//!     "j": str,                   # CI job name
+//!     "u": str,                   # CI job run URL
+//!     "p": str,                   # state
+//!     "e": str,                   # env
+//!     "st": str,                  # session type
+//!     "se": dict,                 # session extras
+//! ]
+//! ```
+//! with most types being normal and others coming from our Python code:
+//! - [`ReportTotals`](https://github.com/codecov/shared/blob/e97a9f422a6e224b315d6dc3821f9f5ebe9b2ddd/shared/reports/types.py#L30-L45).
+//! - [`Session`](https://github.com/codecov/shared/blob/e97a9f422a6e224b315d6dc3821f9f5ebe9b2ddd/shared/utils/sessions.py#L111-L128O)
+//!
+//! Input example:
+//! ```notrust
+//!    "0": {                   # session index
+//!      "t": [                 # session totals
+//!        3,                   # files in session
+//!        94,                  # lines
+//!        52,                  # hits
+//!        42,                  # misses
+//!        0,                   # partials
+//!        "55.31915",          # coverage %
+//!        0,                   # branches
+//!        0,                   # methods
+//!        0,                   # messages
+//!        0,                   # sessions
+//!        0,                   # complexity
+//!        0,                   # complexity_total
+//!        0                    # diff
+//!      ],
+//!      "d": 1704827412,       # timestamp
+//!                             # archive (raw upload URL)
+//!      "a": "v4/raw/2024-01-09/<cut>/<cut>/<cut>/340c0c0b-a955-46a0-9de9-3a9b5f2e81e2.txt",
+//!      "f": [],               # flags
+//!      "c": null,             # provider
+//!      "n": null,             # build
+//!      "N": null,             # name
+//!      "j": "codecov-rs CI",  # CI job name
+//!                             # CI job run URL
+//!      "u": "https://github.com/codecov/codecov-rs/actions/runs/7465738121",
+//!      "p": null,             # state
+//!      "e": null,             # env
+//!      "st": "uploaded",      # session type
+//!      "se": {}               # session extras
+//!    }
+//! ```
 
-use winnow::{
-    combinator::{cut_err, delimited, separated},
-    error::{ContextError, ErrMode, ErrorKind, FromExternalError},
-    PResult, Parser, Stateful,
+use std::collections::{BTreeMap, HashMap};
+
+use serde::{de::IgnoredAny, Deserialize};
+use serde_json::Value;
+
+use crate::{
+    error::CodecovError,
+    report::{models, Report, ReportBuilder},
 };
 
-use super::super::{
-    common::{
-        winnow::{ws, StrStream},
-        ReportBuilderCtx,
-    },
-    json::{parse_kv, specific_key, JsonVal},
-};
-use crate::report::{models, Report, ReportBuilder};
-
-pub type ReportOutputStream<S, R, B> = Stateful<S, ReportBuilderCtx<R, B>>;
-
-/// Parses a key-value pair where the key is a filename and the value is a
-/// `ReportFileSummary`. We primarily care about the chunks_index field and can
-/// compute the totals on-demand later.
-///
-/// The format is messy and can only be fully understood by reading the Python
-/// source in our `shared` repository's
-/// [`shared/reports/resources.py`](https://github.com/codecov/shared/tree/main/shared/reports/resources.py) and
-/// [`shared/reports/types.py`](https://github.com/codecov/shared/blob/main/shared/reports/types.py).
-/// Nevertheless, the common case will be described here.
-///
-/// At a high level, the input looks like:
-/// ```notrust
-/// "filename.rs": [
-///     chunks_index: int,
-///     file_totals: ReportTotals,
-///     session_totals: null, // (formerly SessionTotalsArray, but ignored now)
-///     diff_totals: ReportTotals (probably),
-/// ]
-/// ```
-/// with `int` being normal and the other types being from our Python code:
-/// - [`ReportFileSummary`](https://github.com/codecov/shared/blob/e97a9f422a6e224b315d6dc3821f9f5ebe9b2ddd/shared/reports/types.py#L361-L367)
-/// - [`ReportTotals`](https://github.com/codecov/shared/blob/e97a9f422a6e224b315d6dc3821f9f5ebe9b2ddd/shared/reports/types.py#L30-L45)
-/// - [`SessionTotalsArray`](https://github.com/codecov/shared/blob/e97a9f422a6e224b315d6dc3821f9f5ebe9b2ddd/shared/reports/types.py#L263-L272)
-///
-/// `SessionTotalsArray` no longer exists, but older reports may still have it.
-/// It's a dict mapping a session ID to a `SessionTotals` (which is just a type
-/// alias for `ReportTotals` and a "meta" key with extra information including
-/// how many sessions there are in the map, and old reports may still have it.
-/// There's an even older format which is just a flat list. In any case, we
-/// ignore the field now.
-///
-/// Input example:
-/// ```notrust
-///    "src/report.rs": [
-///      0,             # index in chunks
-///      [              # file totals
-///        0,           # > files
-///        45,          # > lines
-///        45,          # > hits
-///        0,           # > misses
-///        0,           # > partials
-///        "100",       # > coverage %
-///        0,           # > branches
-///        0,           # > methods
-///        0,           # > messages
-///        0,           # > sessions
-///        0,           # > complexity
-///        0,           # > complexity_total
-///        0            # > diff
-///      ],
-///      {              # session totals (usually null nowadays)
-///        "0": [       # > key: session id
-///          0,         # > files
-///          45,        # > lines
-///          45,        # > hits
-///          0,         # > misses
-///          0,         # > partials
-///          "100"      # > coverage
-///        ],
-///        "meta": {
-///          "session_count": 1
-///        }
-///      },
-///      null           # diff totals
-///    ],
-/// ```
-pub fn report_file<S: StrStream, R: Report, B: ReportBuilder<R>>(
-    buf: &mut ReportOutputStream<S, R, B>,
-) -> PResult<(usize, i64)> {
-    let (filename, file_summary) = delimited(ws, parse_kv, ws).parse_next(buf)?;
-
-    let Some(chunks_index) = file_summary
-        .get(0)
-        // winnow's f64 parser handles scientific notation and such OOTB so we use it for all
-        // numbers. This is expected to be u64
-        .and_then(JsonVal::as_f64)
-        .map(|f| f as u64)
-    else {
-        return Err(ErrMode::Cut(ContextError::new()));
-    };
-
-    let file = buf
-        .state
-        .report_builder
-        .insert_file(&filename)
-        .map_err(|e| ErrMode::from_external_error(buf, ErrorKind::Fail, e))?;
-
-    Ok((chunks_index as usize, file.id))
+#[derive(Debug, Deserialize)]
+struct ReportJson {
+    // NOTE: these two are `BTreeMap` only to have stable iteration order in tests
+    files: BTreeMap<String, File>,
+    sessions: BTreeMap<usize, Session>,
 }
 
-/// Parses a key-value pair where the key is a session index and the value is an
-/// encoded `Session`. A session essentially just an upload. We can compute
-/// session-specific coverage totals on-demand later and only care about other
-/// details for now.
-///
-/// The format is messy and can only be fully understood by reading the Python
-/// source in our `shared` repository's
-/// [`shared/reports/resources.py`](https://github.com/codecov/shared/tree/main/shared/reports/resources.py),
-/// [`shared/reports/types.py`](https://github.com/codecov/shared/blob/main/shared/reports/types.py),
-/// and [`shared/utils/sessions.py`](https://github.com/codecov/shared/blob/main/shared/utils/sessions.py).
-/// Nevertheless, the common case will be described here.
-///
-/// At a high level, the input looks like:
-/// ```notrust
-/// "session index": [
-///     "t": ReportTotals,          # Coverage totals for this report
-///     "d": int,                   # time
-///     "a": str,                   # archive (URL of raw upload)
-///     "f": list[str],             # flags
-///     "c": str,                   # provider
-///     "n": str,                   # build
-///     "N": str,                   # name
-///     "j": str,                   # CI job name
-///     "u": str,                   # CI job run URL
-///     "p": str,                   # state
-///     "e": str,                   # env
-///     "st": str,                  # session type
-///     "se": dict,                 # session extras
-/// ]
-/// ```
-/// with most types being normal and others coming from our Python code:
-/// - [`ReportTotals`](https://github.com/codecov/shared/blob/e97a9f422a6e224b315d6dc3821f9f5ebe9b2ddd/shared/reports/types.py#L30-L45).
-/// - [`Session`](https://github.com/codecov/shared/blob/e97a9f422a6e224b315d6dc3821f9f5ebe9b2ddd/shared/utils/sessions.py#L111-L128O)
-///
-/// Input example:
-/// ```notrust
-///    "0": {                   # session index
-///      "t": [                 # session totals
-///        3,                   # files in session
-///        94,                  # lines
-///        52,                  # hits
-///        42,                  # misses
-///        0,                   # partials
-///        "55.31915",          # coverage %
-///        0,                   # branches
-///        0,                   # methods
-///        0,                   # messages
-///        0,                   # sessions
-///        0,                   # complexity
-///        0,                   # complexity_total
-///        0                    # diff
-///      ],
-///      "d": 1704827412,       # timestamp
-///                             # archive (raw upload URL)
-///      "a": "v4/raw/2024-01-09/<cut>/<cut>/<cut>/340c0c0b-a955-46a0-9de9-3a9b5f2e81e2.txt",
-///      "f": [],               # flags
-///      "c": null,             # provider
-///      "n": null,             # build
-///      "N": null,             # name
-///      "j": "codecov-rs CI",  # CI job name
-///                             # CI job run URL
-///      "u": "https://github.com/codecov/codecov-rs/actions/runs/7465738121",
-///      "p": null,             # state
-///      "e": null,             # env
-///      "st": "uploaded",      # session type
-///      "se": {}               # session extras
-///    }
-/// ```
-pub fn report_session<S: StrStream, R: Report, B: ReportBuilder<R>>(
-    buf: &mut ReportOutputStream<S, R, B>,
-) -> PResult<(usize, i64)> {
-    let (session_index, encoded_session) = delimited(ws, parse_kv, ws).parse_next(buf)?;
-    let Ok(session_index) = session_index.parse::<usize>() else {
-        return Err(ErrMode::Cut(ContextError::new()));
-    };
-    let JsonVal::Object(values) = encoded_session else {
-        return Err(ErrMode::Cut(ContextError::new()));
-    };
+#[derive(Debug, Deserialize)]
+// this really is:
+// - index in chunks
+// - file totals
+// - session totals
+// - diff totals
+struct File(usize, IgnoredAny, IgnoredAny, IgnoredAny);
 
-    let raw_upload = models::RawUpload {
-        timestamp: values.get("d").and_then(JsonVal::as_f64).map(|f| f as i64),
-        raw_upload_url: values.get("a").and_then(JsonVal::as_str).map(str::to_owned),
-        flags: values.get("f").cloned(),
-        provider: values.get("c").and_then(JsonVal::as_str).map(str::to_owned),
-        build: values.get("n").and_then(JsonVal::as_str).map(str::to_owned),
-        name: values.get("N").and_then(JsonVal::as_str).map(str::to_owned),
-        job_name: values.get("j").and_then(JsonVal::as_str).map(str::to_owned),
-        ci_run_url: values.get("u").and_then(JsonVal::as_str).map(str::to_owned),
-        state: values.get("p").and_then(JsonVal::as_str).map(str::to_owned),
-        env: values.get("e").and_then(JsonVal::as_str).map(str::to_owned),
-        session_type: values
-            .get("st")
-            .and_then(JsonVal::as_str)
-            .map(str::to_owned),
-        session_extras: values.get("se").cloned(),
-        ..Default::default()
-    };
-
-    let raw_upload = buf
-        .state
-        .report_builder
-        .insert_raw_upload(raw_upload)
-        .map_err(|e| ErrMode::from_external_error(buf, ErrorKind::Fail, e))?;
-
-    Ok((session_index, raw_upload.id))
+#[derive(Debug, Deserialize)]
+struct Session {
+    #[serde(rename = "d")]
+    timestamp: Option<i64>,
+    #[serde(rename = "a")]
+    raw_upload_url: Option<String>,
+    #[serde(rename = "f")]
+    flags: Option<Value>,
+    #[serde(rename = "c")]
+    provider: Option<String>,
+    #[serde(rename = "n")]
+    build: Option<String>,
+    #[serde(rename = "N")]
+    name: Option<String>,
+    #[serde(rename = "j")]
+    job_name: Option<String>,
+    #[serde(rename = "u")]
+    ci_run_url: Option<String>,
+    #[serde(rename = "p")]
+    state: Option<String>,
+    #[serde(rename = "e")]
+    env: Option<String>,
+    #[serde(rename = "st")]
+    session_type: Option<String>,
+    #[serde(rename = "se")]
+    session_extras: Option<Value>,
 }
 
-/// Parses the JSON object that corresponds to the "files" key. Because there
-/// could be many files, we parse each key/value pair one at a time.
-pub fn report_files_dict<S: StrStream, R: Report, B: ReportBuilder<R>>(
-    buf: &mut ReportOutputStream<S, R, B>,
-) -> PResult<HashMap<usize, i64>> {
-    cut_err(delimited(
-        (ws, '{', ws),
-        separated(0.., report_file, (ws, ',', ws)),
-        (ws, '}', ws),
-    ))
-    .parse_next(buf)
+#[derive(Debug)]
+pub struct ParsedReportJson {
+    pub files: HashMap<usize, i64>,
+    pub sessions: HashMap<usize, i64>,
 }
 
-/// Parses the JSON object that corresponds to the "sessions" key. Because there
-/// could be many sessions, we parse each key/value pair one at a time.
-pub fn report_sessions_dict<S: StrStream, R: Report, B: ReportBuilder<R>>(
-    buf: &mut ReportOutputStream<S, R, B>,
-) -> PResult<HashMap<usize, i64>> {
-    cut_err(delimited(
-        (ws, '{', ws),
-        separated(0.., report_session, (ws, ',', ws)),
-        (ws, '}', ws),
-    ))
-    .parse_next(buf)
-}
+pub fn parse_report_json<B, R>(
+    input: &[u8],
+    builder: &mut B,
+) -> Result<ParsedReportJson, CodecovError>
+where
+    B: ReportBuilder<R>,
+    R: Report,
+{
+    let report: ReportJson = serde_json::from_slice(input)?;
 
-/// Parses a "report JSON" object which contains information about the files and
-/// "sessions" in a report. A session is more-or-less a single upload, and they
-/// are represented in our schema as a "context" which may be tied to a line.
-///
-/// At a high level, the format looks something like:
-/// ```notrust
-/// {
-///     "files": {
-///         "filename": ReportFileSummary,
-///         ...
-///     },
-///     "sessions": {
-///         "session index": Session,
-///         ...
-///     }
-/// }
-/// ```
-///
-/// The types can only be completely understood by reading their implementations
-/// in our Python code:
-/// - [`ReportFileSummary`](https://github.com/codecov/shared/blob/e97a9f422a6e224b315d6dc3821f9f5ebe9b2ddd/shared/reports/types.py#L361-L367)
-/// - [`Session`](https://github.com/codecov/shared/blob/e97a9f422a6e224b315d6dc3821f9f5ebe9b2ddd/shared/utils/sessions.py#L111-L128O)
-pub fn parse_report_json<S: StrStream, R: Report, B: ReportBuilder<R>>(
-    buf: &mut ReportOutputStream<S, R, B>,
-) -> PResult<(HashMap<usize, i64>, HashMap<usize, i64>)> {
-    let parse_files = delimited(specific_key("files"), report_files_dict, (ws, ',', ws));
-    let parse_sessions = delimited(specific_key("sessions"), report_sessions_dict, ws);
-    cut_err(delimited(
-        (ws, '{', ws),
-        (parse_files, parse_sessions),
-        (ws, '}', ws),
-    ))
-    .parse_next(buf)
+    let mut files = HashMap::with_capacity(report.files.len());
+    for (filename, file) in report.files {
+        let chunk_index = file.0;
+
+        let file = builder.insert_file(&filename)?;
+        files.insert(chunk_index, file.id);
+    }
+
+    let mut sessions = HashMap::with_capacity(report.sessions.len());
+    for (session_index, session) in report.sessions {
+        let raw_upload = models::RawUpload {
+            id: 0,
+            timestamp: session.timestamp,
+            raw_upload_url: session.raw_upload_url,
+            flags: session.flags,
+            provider: session.provider,
+            build: session.build,
+            name: session.name,
+            job_name: session.job_name,
+            ci_run_url: session.ci_run_url,
+            state: session.state,
+            env: session.env,
+            session_type: session.session_type,
+            session_extras: session.session_extras,
+        };
+
+        let raw_upload = builder.insert_raw_upload(raw_upload)?;
+
+        sessions.insert(session_index, raw_upload.id);
+    }
+
+    Ok(ParsedReportJson { files, sessions })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::report::test::{TestReport, TestReportBuilder};
+    use crate::report::test::TestReportBuilder;
 
-    type TestStream<'a> = ReportOutputStream<&'a str, TestReport, TestReportBuilder>;
+    #[test]
+    fn test_report_json_simple_valid_case() {
+        let input = br#"{"files": {"src/report.rs": [0, {}, [], null]}, "sessions": {"0": {"j": "codecov-rs CI"}}}"#;
 
-    struct Ctx {
-        parse_ctx: ReportBuilderCtx<TestReport, TestReportBuilder>,
-    }
+        let mut report_builder = TestReportBuilder::default();
+        let _parsed = parse_report_json(input, &mut report_builder).unwrap();
 
-    fn hash_id(path: &str) -> i64 {
-        seahash::hash(path.as_bytes()) as i64
-    }
-
-    fn setup() -> Ctx {
-        let report_builder = TestReportBuilder::default();
-        let parse_ctx = ReportBuilderCtx::new(report_builder);
-        Ctx { parse_ctx }
-    }
-
-    mod report_json {
-        use serde_json::json;
-
-        use super::*;
-        use crate::parsers::json::JsonMap;
-
-        fn test_report_file(path: &str, input: &str) -> PResult<(usize, i64)> {
-            let ctx = setup();
-            let mut buf = TestStream {
-                input,
-                state: ctx.parse_ctx,
-            };
-
-            let res = report_file.parse_next(&mut buf);
-            if res.is_ok() {
-                assert_eq!(
-                    buf.state.report_builder.build().unwrap().files,
-                    &[models::SourceFile::new(path)]
-                );
-            }
-            res
-        }
-
-        #[test]
-        fn test_report_file_simple_valid_case() {
-            assert_eq!(
-                test_report_file("src/report.rs", "\"src/report.rs\": [0, [], {}, null]",),
-                Ok((0, hash_id("src/report.rs")))
-            );
-        }
-
-        #[test]
-        fn test_report_file_malformed_key() {
-            assert_eq!(
-                test_report_file("src/report.rs", "src/report.rs\": [0, [], {}, null]",),
-                Err(ErrMode::Backtrack(ContextError::new()))
-            );
-        }
-
-        #[test]
-        fn test_report_key_wrong_type() {
-            assert_eq!(
-                test_report_file("src/report.rs", "5: [0, [], {}, null]",),
-                Err(ErrMode::Backtrack(ContextError::new()))
-            );
-        }
-
-        #[test]
-        fn test_report_file_chunks_index_wrong_type() {
-            assert_eq!(
-                test_report_file("src/report.rs", "\"src/report.rs\": [\"0\", [], {}, null]",),
-                Err(ErrMode::Cut(ContextError::new()))
-            );
-        }
-
-        #[test]
-        fn test_report_file_file_summary_wrong_type() {
-            assert_eq!(
-                test_report_file(
-                    "src/report.rs",
-                    "\"src/report.rs\": {\"chunks_index\": 0, \"totals\": []}",
-                ),
-                Err(ErrMode::Cut(ContextError::new()))
-            );
-        }
-
-        #[test]
-        fn test_report_file_file_summary_empty() {
-            assert_eq!(
-                test_report_file("src/report.rs", "\"src/report.rs\": []",),
-                Err(ErrMode::Cut(ContextError::new()))
-            );
-        }
-
-        fn test_report_session(job_name: Option<&str>, input: &str) -> PResult<(usize, i64)> {
-            let ctx = setup();
-            let mut buf = TestStream {
-                input,
-                state: ctx.parse_ctx,
-            };
-
-            let res = report_session.parse_next(&mut buf);
-            if res.is_ok() {
-                let report = buf.state.report_builder.build().unwrap();
-                assert_eq!(
-                    report.uploads,
-                    &[models::RawUpload {
-                        id: 0,
-                        job_name: job_name.map(str::to_owned),
-                        ..Default::default()
-                    }]
-                );
-            }
-            res
-        }
-
-        #[test]
-        fn test_report_session_simple_valid_case() {
-            assert_eq!(
-                test_report_session(Some("codecov-rs CI"), "\"0\": {\"j\": \"codecov-rs CI\"}",),
-                Ok((0, 0))
-            );
-        }
-
-        #[test]
-        fn test_report_session_fully_populated() {
-            let ctx = setup();
-            let timestamp = 1704827412;
-            let job_name = "codecov-rs CI";
-            let ci_run_url = "https://github.com/codecov/codecov-rs/actions/runs/7465738121";
-            let input = "\"0\": {
-                \"t\": [3, 94, 52, 42, 3, \"55.31915\", 2, 2, 0, 0, 3, 5, 0],
-                \"d\": 1704827412,
-                \"a\": \"v4/raw/2024-01-09/<cut>/<cut>/<cut>/340c0c0b-a955-46a0-9de9-3a9b5f2e81e2.txt\",
-                \"f\": [\"flag\"],
-                \"c\": \"github-actions\",
-                \"n\": \"build\",
-                \"N\": \"name\",
-                \"j\": \"codecov-rs CI\",
-                \"u\": \"https://github.com/codecov/codecov-rs/actions/runs/7465738121\",
-                \"p\": \"state\",
-                \"e\": \"env\",
-                \"st\": \"uploaded\",
-                \"se\": {}
-            }";
-            let mut buf = TestStream {
-                input,
-                state: ctx.parse_ctx,
-            };
-
-            let inserted_upload = models::RawUpload {
+        let report = report_builder.build().unwrap();
+        assert_eq!(report.files, &[models::SourceFile::new("src/report.rs")]);
+        assert_eq!(
+            report.uploads,
+            &[models::RawUpload {
                 id: 0,
-                timestamp: Some(timestamp),
-                raw_upload_url: Some(
-                    "v4/raw/2024-01-09/<cut>/<cut>/<cut>/340c0c0b-a955-46a0-9de9-3a9b5f2e81e2.txt"
-                        .to_string(),
-                ),
-                flags: Some(json!(["flag"])),
-                provider: Some("github-actions".to_string()),
-                build: Some("build".to_string()),
-                name: Some("name".to_string()),
-                job_name: Some(job_name.to_string()),
-                ci_run_url: Some(ci_run_url.to_string()),
-                state: Some("state".to_string()),
-                env: Some("env".to_string()),
-                session_type: Some("uploaded".to_string()),
-                session_extras: Some(JsonVal::Object(JsonMap::new())),
-            };
+                job_name: Some("codecov-rs CI".into()),
+                ..Default::default()
+            }]
+        );
+    }
 
-            assert_eq!(report_session.parse_next(&mut buf), Ok((0, 0)));
+    #[test]
+    fn test_report_json_two_files_two_sessions() {
+        let input = br#"{"files": {"src/report.rs": [0, {}, [], null], "src/report/models.rs": [1, {}, [], null]}, "sessions": {"0": {"j": "codecov-rs CI"}, "1": {"j": "codecov-rs CI 2"}}}"#;
 
-            let report = buf.state.report_builder.build().unwrap();
-            assert_eq!(report.uploads, &[inserted_upload]);
-        }
+        let mut report_builder = TestReportBuilder::default();
+        let _parsed = parse_report_json(input, &mut report_builder).unwrap();
 
-        #[test]
-        fn test_report_session_malformed_session_index() {
-            assert_eq!(
-                test_report_session(Some("codecov-rs CI"), "'0\": {\"j\": \"codecov-rs CI\"}",),
-                Err(ErrMode::Backtrack(ContextError::new()))
-            );
-        }
+        let report = report_builder.build().unwrap();
+        assert_eq!(
+            report.files,
+            &[
+                models::SourceFile::new("src/report.rs"),
+                models::SourceFile::new("src/report/models.rs")
+            ]
+        );
+        assert_eq!(
+            report.uploads,
+            &[
+                models::RawUpload {
+                    id: 0,
+                    job_name: Some("codecov-rs CI".into()),
+                    ..Default::default()
+                },
+                models::RawUpload {
+                    id: 1,
+                    job_name: Some("codecov-rs CI 2".into()),
+                    ..Default::default()
+                },
+            ]
+        );
+    }
 
-        #[test]
-        fn test_report_session_session_index_not_numeric() {
-            assert_eq!(
-                test_report_session(Some("codecov-rs CI"), "\"str\": {\"j\": \"codecov-rs CI\"}",),
-                Err(ErrMode::Cut(ContextError::new()))
-            );
-        }
+    #[test]
+    fn test_report_json_empty_files() {
+        let input = br#"{"files": {}, "sessions": {"0": {"j": "codecov-rs CI"}, "1": {"j": "codecov-rs CI 2"}}}"#;
 
-        #[test]
-        fn test_report_session_session_index_float() {
-            assert_eq!(
-                test_report_session(
-                    Some("codecov-rs CI"),
-                    "\"3.34\": {\"j\": \"codecov-rs CI\"}",
-                ),
-                Err(ErrMode::Cut(ContextError::new()))
-            );
-        }
+        let mut report_builder = TestReportBuilder::default();
+        let _parsed = parse_report_json(input, &mut report_builder).unwrap();
 
-        #[test]
-        fn test_report_session_missing_job_key() {
-            assert_eq!(
-                test_report_session(None, "\"0\": {\"x\": \"codecov-rs CI\"}",),
-                Ok((0, 0))
-            );
-        }
+        let report = report_builder.build().unwrap();
+        assert_eq!(report.files, &[]);
+        assert_eq!(
+            report.uploads,
+            &[
+                models::RawUpload {
+                    id: 0,
+                    job_name: Some("codecov-rs CI".into()),
+                    ..Default::default()
+                },
+                models::RawUpload {
+                    id: 1,
+                    job_name: Some("codecov-rs CI 2".into()),
+                    ..Default::default()
+                },
+            ]
+        );
+    }
 
-        #[test]
-        fn test_report_session_job_key_wrong_type() {
-            assert_eq!(test_report_session(None, "\"0\": {\"j\": []}",), Ok((0, 0)));
-        }
+    #[test]
+    fn test_report_json_empty_sessions() {
+        let input = br#"{"files": {"src/report.rs": [0, {}, [], null], "src/report/models.rs": [1, {}, [], null]}, "sessions": {}}"#;
 
-        #[test]
-        fn test_report_session_encoded_session_wrong_type() {
-            assert_eq!(
-                test_report_session(Some("codecov-rs CI"), "\"0\": [\"j\", []]",),
-                Err(ErrMode::Cut(ContextError::new()))
-            );
-        }
+        let mut report_builder = TestReportBuilder::default();
+        let _parsed = parse_report_json(input, &mut report_builder).unwrap();
 
-        fn test_report_files_dict(paths: &[&str], input: &str) -> PResult<HashMap<usize, i64>> {
-            let ctx = setup();
-            let mut buf = TestStream {
-                input,
-                state: ctx.parse_ctx,
-            };
+        let report = report_builder.build().unwrap();
+        assert_eq!(
+            report.files,
+            &[
+                models::SourceFile::new("src/report.rs"),
+                models::SourceFile::new("src/report/models.rs")
+            ]
+        );
+        assert_eq!(report.uploads, &[]);
+    }
 
-            let res = report_files_dict.parse_next(&mut buf);
-            if res.is_ok() {
-                let report = buf.state.report_builder.build().unwrap();
+    #[test]
+    fn test_report_json_empty() {
+        let input = br#"{"files": {}, "sessions": {}}"#;
 
-                let expected_files: Vec<_> = paths
-                    .iter()
-                    .map(|path| models::SourceFile::new(path))
-                    .collect();
-                assert_eq!(report.files, expected_files);
-            }
-            res
-        }
+        let mut report_builder = TestReportBuilder::default();
+        let _parsed = parse_report_json(input, &mut report_builder).unwrap();
 
-        #[test]
-        fn test_report_files_dict_single_valid_file() {
-            assert_eq!(
-                test_report_files_dict(
-                    &["src/report.rs"],
-                    "{\"src/report.rs\": [0, [], {}, null]}",
-                ),
-                Ok(HashMap::from([(0, hash_id("src/report.rs"))]))
-            );
-        }
+        let report = report_builder.build().unwrap();
+        assert_eq!(report.files, &[]);
+        assert_eq!(report.uploads, &[]);
+    }
 
-        #[test]
-        fn test_report_files_dict_multiple_valid_files() {
-            assert_eq!(test_report_files_dict(
-                &["src/report.rs", "src/report/models.rs"],
-                "{\"src/report.rs\": [0, [], {}, null], \"src/report/models.rs\": [1, [], {}, null]}",
-            ), Ok(HashMap::from([(0, hash_id("src/report.rs")), (1, hash_id("src/report/models.rs"))])));
-        }
+    #[test]
+    fn test_report_json_missing_files() {
+        let input =
+            br#"{"sessions": {"0": {"j": "codecov-rs CI"}, "1": {"j": "codecov-rs CI 2"}}}"#;
 
-        #[test]
-        fn test_report_files_dict_multiple_valid_files_trailing_comma() {
-            assert_eq!(test_report_files_dict(
-                &["src/report.rs", "src/report/models.rs"],
-                "{\"src/report.rs\": [0, [], {}, null], \"src/report/models.rs\": [1, [], {}, null],}",
-            ), Err(ErrMode::Cut(ContextError::new())));
-        }
+        let mut report_builder = TestReportBuilder::default();
+        parse_report_json(input, &mut report_builder).unwrap_err();
+    }
 
-        #[test]
-        fn test_report_files_dict_multiple_files_same_index() {
-            // TODO this is how winnow handles accumulating into collections but it's not
-            // the behavior that we want. we want to error
-            assert_eq!(test_report_files_dict(
-                &["src/report.rs", "src/report/models.rs"],
-                "{\"src/report.rs\": [0, [], {}, null], \"src/report/models.rs\": [0, [], {}, null]}",
-            ), Ok(HashMap::from([(0, hash_id("src/report/models.rs"))])));
-        }
+    #[test]
+    fn test_report_json_missing_sessions() {
+        let input = br#"{"files": {"src/report.rs": [0, {}, [], null], "src/report/models.rs": [1, {}, [], null]}}"#;
 
-        #[test]
-        fn test_report_files_dict_single_invalid_file() {
-            assert_eq!(
-                test_report_files_dict(
-                    &["src/report.rs"],
-                    "{\"src/report.rs\": [null, [], {}, null]}",
-                ),
-                Err(ErrMode::Cut(ContextError::new()))
-            );
-        }
+        let mut report_builder = TestReportBuilder::default();
+        parse_report_json(input, &mut report_builder).unwrap_err();
+    }
 
-        #[test]
-        fn test_report_files_dict_invalid_file_after_valid_file() {
-            assert_eq!(test_report_files_dict(
-                &["src/report.rs", "src/report/models.rs"],
-                "{\"src/report.rs\": [0, [], {}, null], \"src/report/models.rs\": [null, [], {}, null]}",
-            ), Err(ErrMode::Cut(ContextError::new())));
-        }
+    #[test]
+    fn test_report_json_one_invalid_file() {
+        let input = br#"{"files": {"src/report.rs": [0, {}, [], null], "src/report/models.rs": [null, {}, [], null]}, "sessions": {"0": {"j": "codecov-rs CI"}, "1": {"j": "codecov-rs CI 2"}}}"#;
 
-        #[test]
-        fn test_report_files_dict_wrong_type() {
-            assert_eq!(test_report_files_dict(
-                &["src/report.rs", "src/report/models.rs"],
-                "[\"src/report.rs\": [0, [], {}, null], \"src/report/models.rs\": [1, [], {}, null]]",
-            ), Err(ErrMode::Cut(ContextError::new())));
-        }
+        let mut report_builder = TestReportBuilder::default();
+        parse_report_json(input, &mut report_builder).unwrap_err();
+    }
 
-        #[test]
-        fn test_report_files_dict_no_files() {
-            assert_eq!(test_report_files_dict(&[], "{}",), Ok(HashMap::new()));
-        }
+    #[test]
+    fn test_report_json_one_invalid_session() {
+        let input = br#"{"files": {"src/report.rs": [0, {}, [], null], "src/report/models.rs": [1, {}, [], null]}, "sessions": {"0": {"j": "codecov-rs CI"}, "j": {"xj": "codecov-rs CI 2"}}}"#;
 
-        // This helper is for sessions that include "j" but not "d" or "u".
-        // Name-building behavior is tested separately + covered in the
-        // `fully_populated` test case.
-        fn test_report_sessions_dict(
-            jobs: &[Option<&str>],
-            input: &str,
-        ) -> PResult<HashMap<usize, i64>> {
-            let ctx = setup();
-            let mut buf = TestStream {
-                input,
-                state: ctx.parse_ctx,
-            };
-
-            let res = report_sessions_dict.parse_next(&mut buf);
-            if res.is_ok() {
-                let report = buf.state.report_builder.build().unwrap();
-
-                let expected_uploads: Vec<_> = jobs
-                    .iter()
-                    .enumerate()
-                    .map(|(i, name)| models::RawUpload {
-                        id: i as i64,
-                        job_name: name.map(str::to_owned),
-                        ..Default::default()
-                    })
-                    .collect();
-                assert_eq!(report.uploads, expected_uploads);
-            }
-            res
-        }
-
-        #[test]
-        fn test_report_sessions_dict_single_valid_session() {
-            assert_eq!(
-                test_report_sessions_dict(
-                    &[Some("codecov-rs CI")],
-                    "{\"0\": {\"j\": \"codecov-rs CI\"}}",
-                ),
-                Ok(HashMap::from([(0, 0)]))
-            );
-        }
-
-        #[test]
-        fn test_report_sessions_dict_multiple_valid_sessions() {
-            assert_eq!(
-                test_report_sessions_dict(
-                    &[Some("codecov-rs CI"), Some("codecov-rs CI 2")],
-                    "{\"0\": {\"j\": \"codecov-rs CI\"}, \"1\": {\"j\": \"codecov-rs CI 2\"}}",
-                ),
-                Ok(HashMap::from([(0, 0), (1, 1)]))
-            );
-        }
-
-        #[test]
-        fn test_report_sessions_dict_multiple_valid_sessions_trailing_comma() {
-            assert_eq!(
-                test_report_sessions_dict(
-                    &[Some("codecov-rs CI"), Some("codecov-rs CI 2")],
-                    "{\"0\": {\"j\": \"codecov-rs CI\"}, \"1\": {\"j\": \"codecov-rs CI 2\"},}",
-                ),
-                Err(ErrMode::Cut(ContextError::new()))
-            );
-        }
-
-        #[test]
-        fn test_report_sessions_dict_multiple_sessions_same_index() {
-            // TODO this is how winnow handles accumulating into collections but it's not
-            // the behavior that we want. we want to error
-            assert_eq!(
-                test_report_sessions_dict(
-                    &[Some("codecov-rs CI"), Some("codecov-rs CI 2")],
-                    "{\"0\": {\"j\": \"codecov-rs CI\"}, \"0\": {\"j\": \"codecov-rs CI 2\"}}",
-                ),
-                Ok(HashMap::from([(0, 1)]))
-            );
-        }
-
-        #[test]
-        fn test_report_sessions_dict_single_malformed_session() {
-            assert_eq!(
-                test_report_sessions_dict(&[None], "{\"0\": {\"xj\": \"codecov-rs CI\"}}",),
-                Ok(HashMap::from([(0, 0)]))
-            );
-        }
-
-        #[test]
-        fn test_report_sessions_dict_invalid_session_after_valid_session() {
-            assert_eq!(
-                test_report_sessions_dict(
-                    &[Some("codecov-rs CI"), None],
-                    "{\"0\": {\"j\": \"codecov-rs CI\"}, \"1\": {\"xj\": \"codecov-rs CI 2\"}}",
-                ),
-                Ok(HashMap::from([(0, 0), (1, 1)]))
-            );
-        }
-
-        #[test]
-        fn test_report_sessions_dict_wrong_type() {
-            assert_eq!(
-                test_report_sessions_dict(
-                    &[Some("codecov-rs CI")],
-                    "{\"0\": [\"j\": \"codecov-rs CI\"}]",
-                ),
-                Err(ErrMode::Cut(ContextError::new()))
-            );
-        }
-
-        #[test]
-        fn test_report_sessions_dict_no_sessions() {
-            assert_eq!(test_report_sessions_dict(&[], "{}",), Ok(HashMap::new()));
-        }
-
-        fn test_report_json(
-            paths: &[&str],
-            jobs: &[&str],
-            input: &str,
-        ) -> PResult<(HashMap<usize, i64>, HashMap<usize, i64>)> {
-            let ctx = setup();
-            let mut buf = TestStream {
-                input,
-                state: ctx.parse_ctx,
-            };
-
-            let res = parse_report_json.parse_next(&mut buf);
-            if res.is_ok() {
-                let report = buf.state.report_builder.build().unwrap();
-
-                let expected_files: Vec<_> = paths
-                    .iter()
-                    .map(|path| models::SourceFile::new(path))
-                    .collect();
-                assert_eq!(report.files, expected_files);
-
-                let expected_uploads: Vec<_> = jobs
-                    .iter()
-                    .enumerate()
-                    .map(|(i, name)| models::RawUpload {
-                        id: i as i64,
-                        job_name: Some(name.to_string()),
-                        ..Default::default()
-                    })
-                    .collect();
-                assert_eq!(report.uploads, expected_uploads);
-            }
-            res
-        }
-
-        #[test]
-        fn test_report_json_simple_valid_case() {
-            assert_eq!(test_report_json(
-                &["src/report.rs"],
-                &["codecov-rs CI"],
-                "{\"files\": {\"src/report.rs\": [0, {}, [], null]}, \"sessions\": {\"0\": {\"j\": \"codecov-rs CI\"}}}",
-            ), Ok((HashMap::from([(0, hash_id("src/report.rs"))]), HashMap::from([(0, 0)]))))
-        }
-
-        #[test]
-        fn test_report_json_two_files_two_sessions() {
-            assert_eq!(test_report_json(
-                &["src/report.rs", "src/report/models.rs"],
-                &["codecov-rs CI", "codecov-rs CI 2"],
-                "{\"files\": {\"src/report.rs\": [0, {}, [], null], \"src/report/models.rs\": [1, {}, [], null]}, \"sessions\": {\"0\": {\"j\": \"codecov-rs CI\"}, \"1\": {\"j\": \"codecov-rs CI 2\"}}}",
-            ), Ok((HashMap::from([(0, hash_id("src/report.rs")), (1, hash_id("src/report/models.rs"))]), HashMap::from([(0, 0), (1, 1)]))));
-        }
-
-        #[test]
-        fn test_report_json_empty_files() {
-            assert_eq!(test_report_json(
-                &[],
-                &["codecov-rs CI","codecov-rs CI 2"],
-                "{\"files\": {}, \"sessions\": {\"0\": {\"j\": \"codecov-rs CI\"}, \"1\": {\"j\": \"codecov-rs CI 2\"}}}",
-            ), Ok((HashMap::new(), HashMap::from([(0, 0), (1, 1)]))));
-        }
-
-        #[test]
-        fn test_report_json_empty_sessions() {
-            assert_eq!(test_report_json(
-                &["src/report.rs", "src/report/models.rs"],
-                &[],
-                "{\"files\": {\"src/report.rs\": [0, {}, [], null], \"src/report/models.rs\": [1, {}, [], null]}, \"sessions\": {}}",
-            ), Ok((HashMap::from([(0, hash_id("src/report.rs")), (1, hash_id("src/report/models.rs"))]), HashMap::new())));
-        }
-
-        #[test]
-        fn test_report_json_empty() {
-            assert_eq!(
-                test_report_json(&[], &[], "{\"files\": {}, \"sessions\": {}}",),
-                Ok((HashMap::new(), HashMap::new()))
-            );
-        }
-
-        #[test]
-        fn test_report_json_sessions_before_files() {
-            assert_eq!(test_report_json(
-                &["src/report.rs", "src/report/models.rs"],
-                &["codecov-rs CI", "codecov-rs CI 2"],
-                "{\"sessions\": {\"0\": {\"j\": \"codecov-rs CI\"}, \"1\": {\"j\": \"codecov-rs CI 2\"}}, \"files\": {\"src/report.rs\": [0, {}, [], null], \"src/report/models.rs\": [1, {}, [], null]}}",
-            ), Err(ErrMode::Cut(ContextError::new())));
-        }
-
-        #[test]
-        fn test_report_json_missing_files() {
-            assert_eq!(test_report_json(
-                &["src/report.rs", "src/report/models.rs"],
-                &["codecov-rs CI","codecov-rs CI 2"],
-                "{\"sessions\": {\"0\": {\"j\": \"codecov-rs CI\"}, \"1\": {\"j\": \"codecov-rs CI 2\"}}}",
-            ), Err(ErrMode::Cut(ContextError::new())));
-        }
-
-        #[test]
-        fn test_report_json_missing_sessions() {
-            assert_eq!(test_report_json(
-                &["src/report.rs", "src/report/models.rs"],
-                &["codecov-rs CI", "codecov-rs CI 2"],
-                "{\"files\": {\"src/report.rs\": [0, {}, [], null], \"src/report/models.rs\": [1, {}, [], null]}}",
-            ), Err(ErrMode::Cut(ContextError::new())));
-        }
-
-        #[test]
-        fn test_report_json_one_invalid_file() {
-            assert_eq!(test_report_json(
-                &["src/report.rs", "src/report/models.rs"],
-                &["codecov-rs CI", "codecov-rs CI 2"],
-                "{\"files\": {\"src/report.rs\": [0, {}, [], null], \"src/report/models.rs\": [null, {}, [], null]}, \"sessions\": {\"0\": {\"j\": \"codecov-rs CI\"}, \"1\": {\"j\": \"codecov-rs CI 2\"}}}",
-            ), Err(ErrMode::Cut(ContextError::new())));
-        }
-
-        #[test]
-        fn test_report_json_one_invalid_session() {
-            assert_eq!(test_report_json(
-                &["src/report.rs", "src/report/models.rs"],
-                &["codecov-rs CI", "codecov-rs CI 2"],
-                "{\"files\": {\"src/report.rs\": [0, {}, [], null], \"src/report/models.rs\": [1, {}, [], null]}, \"sessions\": {\"0\": {\"j\": \"codecov-rs CI\"}, \"j\": {\"xj\": \"codecov-rs CI 2\"}}}",
-            ), Err(ErrMode::Cut(ContextError::new())));
-        }
+        let mut report_builder = TestReportBuilder::default();
+        parse_report_json(input, &mut report_builder).unwrap_err();
     }
 }
