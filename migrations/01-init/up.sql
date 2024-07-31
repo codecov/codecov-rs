@@ -63,7 +63,7 @@ CREATE TABLE coverage_sample (
     raw_upload_id INTEGER REFERENCES raw_upload(id) NOT NULL,
 
     -- This should be an application-managed auto-incremented integer.
-    local_sample_id INTEGER NOT NULL,
+    local_sample_id INTEGER PRIMARY KEY,
 
     source_file_id INTEGER REFERENCES source_file(id) NOT NULL,
     line_no INTEGER NOT NULL,
@@ -71,9 +71,9 @@ CREATE TABLE coverage_sample (
     coverage_type VARCHAR NOT NULL,
     hits INTEGER,
     hit_branches INTEGER,
-    total_branches INTEGER,
+    total_branches INTEGER
 
-    PRIMARY KEY (raw_upload_id, local_sample_id)
+    -- PRIMARY KEY (raw_upload_id, local_sample_id)
 );
 
 -- TODO: Measure size/perf impact of making this table `WITHOUT ROWID`
@@ -82,16 +82,16 @@ CREATE TABLE branches_data (
     local_sample_id INTEGER NOT NULL,
 
     -- This should be an application-managed auto-incremented integer.
-    local_branch_id INTEGER NOT NULL,
+    local_branch_id INTEGER PRIMARY KEY,
 
     source_file_id INTEGER REFERENCES source_file(id) NOT NULL,
 
     hits INTEGER NOT NULL,
     branch_format VARCHAR NOT NULL,
-    branch VARCHAR NOT NULL,
+    branch VARCHAR NOT NULL
 
-    FOREIGN KEY (raw_upload_id, local_sample_id) REFERENCES coverage_sample(raw_upload_id, local_sample_id),
-    PRIMARY KEY (raw_upload_id, local_branch_id)
+    -- FOREIGN KEY (raw_upload_id, local_sample_id) REFERENCES coverage_sample(raw_upload_id, local_sample_id),
+    -- PRIMARY KEY (raw_upload_id, local_branch_id)
 );
 
 -- TODO: Measure size/perf impact of making this table `WITHOUT ROWID`
@@ -100,7 +100,7 @@ CREATE TABLE method_data (
     local_sample_id INTEGER NOT NULL,
 
     -- This should be an application-managed auto-incremented integer.
-    local_method_id INTEGER NOT NULL,
+    local_method_id INTEGER PRIMARY KEY,
 
     source_file_id INTEGER REFERENCES source_file(id) NOT NULL,
     line_no INTEGER,
@@ -108,16 +108,16 @@ CREATE TABLE method_data (
     hit_branches INTEGER,
     total_branches INTEGER,
     hit_complexity_paths INTEGER,
-    total_complexity INTEGER,
+    total_complexity INTEGER
 
-    FOREIGN KEY (raw_upload_id, local_sample_id) REFERENCES coverage_sample(raw_upload_id, local_sample_id),
-    PRIMARY KEY (raw_upload_id, local_method_id)
+    -- FOREIGN KEY (raw_upload_id, local_sample_id) REFERENCES coverage_sample(raw_upload_id, local_sample_id),
+    -- PRIMARY KEY (raw_upload_id, local_method_id)
 );
 
 -- TODO: Measure size/perf impact of making this table `WITHOUT ROWID`
 CREATE TABLE span_data (
     raw_upload_id INTEGER REFERENCES raw_upload(id) NOT NULL,
-    local_sample_id INTEGER,
+    local_sample_id INTEGER PRIMARY KEY,
 
     -- This should be an application-managed auto-incremented integer.
     local_span_id INTEGER NOT NULL,
@@ -128,8 +128,8 @@ CREATE TABLE span_data (
     start_line INTEGER,
     start_col INTEGER,
     end_line INTEGER,
-    end_col INTEGER,
+    end_col INTEGER
 
-    FOREIGN KEY (raw_upload_id, local_sample_id) REFERENCES coverage_sample(raw_upload_id, local_sample_id),
-    PRIMARY KEY (raw_upload_id, local_span_id)
+    -- FOREIGN KEY (raw_upload_id, local_sample_id) REFERENCES coverage_sample(raw_upload_id, local_sample_id),
+    -- PRIMARY KEY (raw_upload_id, local_span_id)
 );
