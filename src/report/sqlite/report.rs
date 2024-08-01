@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{fmt, path::PathBuf};
 
 use rusqlite::{Connection, OptionalExtension};
 
@@ -11,6 +11,12 @@ use crate::{
 pub struct SqliteReport {
     pub filename: PathBuf,
     pub conn: Connection,
+}
+
+impl fmt::Debug for SqliteReport {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SqliteReport").finish_non_exhaustive()
+    }
 }
 
 impl SqliteReport {
@@ -309,7 +315,7 @@ mod tests {
         let line_6 = right_report_builder
             .insert_coverage_sample(models::CoverageSample {
                 raw_upload_id: upload_2.id,
-                source_file_id: file_2.id,
+                source_file_id: file_3.id,
                 line_no: 2,
                 coverage_type: models::CoverageType::Method,
                 hits: Some(2),
@@ -336,38 +342,32 @@ mod tests {
         let mut left = left_report_builder.build().unwrap();
         let right = right_report_builder.build().unwrap();
         left.merge(&right).unwrap();
+
+        // NOTE: the assertions here are sensitive to the sort order:
         assert_eq!(
-            left.list_files().unwrap().sort_by_key(|f| f.id),
-            [&file_1, &file_2, &file_3].sort_by_key(|f| f.id),
+            left.list_files().unwrap(),
+            &[file_1.clone(), file_2.clone(), file_3.clone()]
+        );
+        assert_eq!(left.list_contexts().unwrap(), &[test_case_2, test_case_1]);
+        assert_eq!(
+            left.list_coverage_samples().unwrap(),
+            &[
+                line_1.clone(),
+                line_4.clone(),
+                line_2.clone(),
+                line_5.clone(),
+                line_3.clone(),
+                line_6.clone()
+            ]
+        );
+        assert_eq!(left.list_samples_for_file(&file_1).unwrap(), &[line_1]);
+        assert_eq!(
+            left.list_samples_for_file(&file_2).unwrap(),
+            &[line_2, line_3, line_4]
         );
         assert_eq!(
-            left.list_contexts().unwrap().sort_by_key(|c| c.id),
-            [&test_case_1, &test_case_2].sort_by_key(|c| c.id),
-        );
-        assert_eq!(
-            left.list_coverage_samples()
-                .unwrap()
-                .sort_by_key(|s| s.local_sample_id),
-            [&line_1, &line_2, &line_3, &line_4, &line_5, &line_6]
-                .sort_by_key(|s| s.local_sample_id),
-        );
-        assert_eq!(
-            left.list_samples_for_file(&file_1)
-                .unwrap()
-                .sort_by_key(|s| s.local_sample_id),
-            [&line_1].sort_by_key(|s| s.local_sample_id),
-        );
-        assert_eq!(
-            left.list_samples_for_file(&file_2)
-                .unwrap()
-                .sort_by_key(|s| s.local_sample_id),
-            [&line_2, &line_3, &line_4].sort_by_key(|s| s.local_sample_id),
-        );
-        assert_eq!(
-            left.list_samples_for_file(&file_3)
-                .unwrap()
-                .sort_by_key(|s| s.local_sample_id),
-            [&line_5, &line_6].sort_by_key(|s| s.local_sample_id),
+            left.list_samples_for_file(&file_3).unwrap(),
+            &[line_5, line_6]
         );
     }
 

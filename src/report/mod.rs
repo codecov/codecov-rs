@@ -48,6 +48,7 @@ pub trait Report {
 
 /// An interface for creating a new coverage report.
 #[cfg_attr(test, automock)]
+#[allow(clippy::needless_lifetimes)] // `automock` requires these
 pub trait ReportBuilder<R: Report> {
     /// Create a [`models::SourceFile`] record and return it.
     fn insert_file(&mut self, path: String) -> Result<models::SourceFile>;

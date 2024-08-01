@@ -262,7 +262,7 @@ fn test_parse_pyreport() {
         session_extras: Some(json!({})),
     };
 
-    let expected_files = vec![
+    let expected_files = [
         models::SourceFile {
             id: hash_id("src/report.rs"),
             path: "src/report.rs".to_string(),
@@ -383,8 +383,8 @@ fn test_sql_to_pyreport_to_sql_totals_match() {
 
     let original_totals = report.totals().unwrap();
 
-    let _ = report_json_output_file.rewind().unwrap();
-    let _ = chunks_output_file.rewind().unwrap();
+    report_json_output_file.rewind().unwrap();
+    chunks_output_file.rewind().unwrap();
 
     let roundtrip_db_path = test_ctx.temp_dir.path().join("roundtrip.sqlite");
     let report = pyreport::parse_pyreport(

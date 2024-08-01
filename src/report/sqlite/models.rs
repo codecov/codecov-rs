@@ -668,7 +668,6 @@ mod tests {
             raw_upload_id: raw_upload.id,
             local_sample_id: Some(rand::random()),
             local_span_id: None,
-            ..Default::default()
         };
 
         <ContextAssoc as Insertable<4>>::insert(&model, &report.conn).unwrap();

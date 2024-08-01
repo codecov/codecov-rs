@@ -10,7 +10,7 @@ fn usage_error() -> ! {
     println!(
         "  cargo run --example parse_pyreport -- [SQLITE_PATH] [REPORT_JSON_PATH] [CHUNKS_PATH]"
     );
-    println!("");
+    println!();
     println!("Example:");
     println!(
         "  cargo run --example parse_pyreport -- d2a9ba1.sqlite ~/report_json.json ~/chunks.txt"

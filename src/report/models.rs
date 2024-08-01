@@ -133,7 +133,7 @@ pub enum ContextType {
 
 /// Each source file represented in the coverage data should have a
 /// [`SourceFile`] record with its path relative to the project's root.
-#[derive(PartialEq, Debug, Default)]
+#[derive(PartialEq, Debug, Default, Clone)]
 pub struct SourceFile {
     /// Should be a hash of the path.
     pub id: i64,

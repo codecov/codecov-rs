@@ -275,6 +275,8 @@ pub fn save_report_lines<R: Report, B: ReportBuilder<R>>(
         models
             .iter_mut()
             .filter_map(|LineSessionModels { sample, method, .. }| {
+                // See https://github.com/rust-lang/rust-clippy/issues/13185
+                #[allow(clippy::manual_inspect)]
                 method.as_mut().map(|method| {
                     method.local_sample_id = sample.local_sample_id;
                     method
@@ -928,7 +930,7 @@ mod tests {
                         source_file_id: 123,
                         line_no: 1,
                         hits: Some(10),
-                        coverage_type: coverage_type,
+                        coverage_type,
                         ..Default::default()
                     },
                     ..Default::default()
@@ -939,7 +941,7 @@ mod tests {
                         source_file_id: 123,
                         line_no: 1,
                         hits: Some(10),
-                        coverage_type: coverage_type,
+                        coverage_type,
                         ..Default::default()
                     },
                     ..Default::default()
@@ -950,7 +952,7 @@ mod tests {
                         source_file_id: 123,
                         line_no: 1,
                         hits: Some(10),
-                        coverage_type: coverage_type,
+                        coverage_type,
                         ..Default::default()
                     },
                     ..Default::default()
@@ -1025,7 +1027,7 @@ mod tests {
                         source_file_id: 123,
                         line_no: 1,
                         hits: Some(10),
-                        coverage_type: coverage_type,
+                        coverage_type,
                         ..Default::default()
                     },
                     assocs: vec![
@@ -1048,7 +1050,7 @@ mod tests {
                         source_file_id: 123,
                         line_no: 1,
                         hits: Some(10),
-                        coverage_type: coverage_type,
+                        coverage_type,
                         ..Default::default()
                     },
                     ..Default::default()
@@ -1059,7 +1061,7 @@ mod tests {
                         source_file_id: 123,
                         line_no: 1,
                         hits: Some(10),
-                        coverage_type: coverage_type,
+                        coverage_type,
                         ..Default::default()
                     },
                     assocs: vec![models::ContextAssoc {
