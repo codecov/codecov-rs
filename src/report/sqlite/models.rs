@@ -16,17 +16,14 @@ use super::super::models::*;
 use crate::{error::Result, parsers::json::JsonVal};
 
 /// Takes care of the boilerplate to insert a model into the database.
-/// Implementers must provide four things:
-/// - `const INSERT_QUERY_PRELUDE: &'static str;`: the "INSERT INTO ... (...)
-///   VALUES " bit of a query
-/// - `const INSERT_PLACEHOLDER: &'static str;`: a tuple with the appropriate
-///   number of `?`s to represent a single record. Placed after the "VALUES"
-///   keyword in an insert query.
-/// - `fn param_bindings(&self) -> [&dyn rusqlite::ToSql; FIELD_COUNT]`: a
-///   function which returns an array of `ToSql` trait objects that should bind
-///   to each of the `?`s in `INSERT_PLACEHOLDER`.
+/// Implementers must provide three things:
+/// - `const TABLE_NAME`: The name of the table
+/// - `const FIELDS`: The names of all the fields
+/// - `fn extend_params`: A function that fills in the field values. The number
+///   and order of params has to match those in `FIELDS`.
 ///
-/// Example:
+/// # Examples
+///
 /// ```
 /// # use codecov_rs::report::sqlite::Insertable;
 /// struct File {
@@ -34,34 +31,73 @@ use crate::{error::Result, parsers::json::JsonVal};
 ///      path: String,
 /// }
 ///
-/// impl Insertable<2> for File {
-///     const INSERT_QUERY_PRELUDE: &'static str = "INSERT INTO file (id, path) VALUES ";
-///     const INSERT_PLACEHOLDER: &'static str = "(?, ?)";
+/// impl Insertable for File {
+///     const TABLE_NAME: &'static str = "file";
+///     const FIELDS: &'static [&'static str] = &["id", "path"];
 ///
-///     fn param_bindings(&self) -> [&dyn rusqlite::ToSql; 2] {
-///         [
+///     fn extend_params<'a>(&'a self, params: &mut Vec<&'a dyn rusqlite::ToSql>) {
+///         params.extend(&[
 ///             &self.id as &dyn rusqlite::ToSql,
 ///             &self.path as &dyn rusqlite::ToSql,
-///         ]
+///         ])
 ///     }
 /// }
 /// ```
 ///
 /// IDs are not assigned automatically; assign your own to models before you
 /// insert them.
-pub trait Insertable<const FIELD_COUNT: usize> {
-    const INSERT_QUERY_PRELUDE: &'static str;
+pub trait Insertable {
+    /// The name of the table.
+    const TABLE_NAME: &'static str;
+    /// The field names to be inserted.
+    const FIELDS: &'static [&'static str];
 
-    const INSERT_PLACEHOLDER: &'static str;
+    /// This method is supposed to extend the input `params` with the parameters
+    /// matching the `FIELDS`.
+    fn extend_params<'a>(&'a self, params: &mut Vec<&'a dyn rusqlite::ToSql>);
 
-    fn param_bindings(&self) -> [&dyn rusqlite::ToSql; FIELD_COUNT];
+    /// Determines the maximum chunk size depending on the number of fields and
+    /// placeholder limit.
+    fn maximum_chunk_size(conn: &rusqlite::Connection) -> usize {
+        let var_limit = conn.limit(rusqlite::limits::Limit::SQLITE_LIMIT_VARIABLE_NUMBER) as usize;
+        // If each model takes up `FIELDS` variables, we can fit `var_limit /
+        // FIELDS` complete models in each "page" of our query
+        var_limit / Self::FIELDS.len()
+    }
 
-    fn insert(model: &Self, conn: &rusqlite::Connection) -> Result<()> {
-        let mut stmt = conn.prepare_cached(
-            // Maybe turn this in to a lazily-initialized static
-            format!("{}{}", Self::INSERT_QUERY_PRELUDE, Self::INSERT_PLACEHOLDER).as_str(),
-        )?;
-        stmt.execute(rusqlite::params_from_iter(model.param_bindings()))?;
+    /// Dynamically builds an `INSERT` query suitable for the given number of
+    /// `rows`.
+    fn build_query(rows: usize) -> String {
+        let mut query = format!("INSERT INTO {} (", Self::TABLE_NAME);
+        let mut placeholder = String::from('(');
+
+        for (i, field) in Self::FIELDS.iter().enumerate() {
+            if i > 0 {
+                placeholder.push_str(", ");
+                query.push_str(", ");
+            }
+            placeholder.push('?');
+            query.push_str(field);
+        }
+        placeholder.push(')');
+        query.push_str(") VALUES ");
+
+        for i in 0..rows {
+            if i > 0 {
+                query.push_str(", ");
+            }
+            query.push_str(&placeholder);
+        }
+        query.push(';');
+
+        query
+    }
+
+    fn insert(&self, conn: &rusqlite::Connection) -> Result<()> {
+        let mut stmt = conn.prepare_cached(&Self::build_query(1))?;
+        let mut params = vec![];
+        self.extend_params(&mut params);
+        stmt.execute(params.as_slice())?;
 
         Ok(())
     }
@@ -71,47 +107,33 @@ pub trait Insertable<const FIELD_COUNT: usize> {
         I: Iterator<Item = &'a Self> + ExactSizeIterator,
         Self: 'a,
     {
-        let model_count = models.len();
-        if model_count == 0 {
-            return Ok(());
+        let chunk_size = Self::maximum_chunk_size(conn);
+
+        let mut params = Vec::with_capacity(Self::FIELDS.len() * (models.len().min(chunk_size)));
+
+        // first: insert huge chunks using a single prepared (cached) query
+        if models.len() >= chunk_size {
+            let mut chunked_stmt = conn.prepare_cached(&Self::build_query(chunk_size))?;
+            while models.len() >= chunk_size {
+                for row in models.by_ref().take(chunk_size) {
+                    row.extend_params(&mut params);
+                }
+                chunked_stmt.execute(params.as_slice())?;
+                params.clear();
+            }
         }
 
-        let var_limit = conn.limit(rusqlite::limits::Limit::SQLITE_LIMIT_VARIABLE_NUMBER) as usize;
-        // If each model takes up `FIELD_COUNT` variables, we can fit `var_limit /
-        // FIELD_COUNT` complete models in each "page" of our query
-        let page_size = var_limit / FIELD_COUNT;
+        // then: insert the remainder
+        if models.len() > 0 {
+            // this statement is not cached, as the number of models / params can be
+            // different for every call
+            let mut remainder_stmt = conn.prepare(&Self::build_query(models.len()))?;
 
-        // Integer division tells us how many full pages there are. If there is a
-        // non-zero remainder, there is one final incomplete page.
-        let page_count = match (model_count / page_size, model_count % page_size) {
-            (page_count, 0) => page_count,
-            (page_count, _) => page_count + 1,
-        };
-
-        // Helper function for creating query strings for differently-sized pages
-        let build_query_for_page = |page_size| {
-            let mut query = format!(" {},", Self::INSERT_PLACEHOLDER).repeat(page_size);
-            query.insert_str(0, Self::INSERT_QUERY_PRELUDE);
-            // Remove trailing comma
-            query.pop();
-            query
-        };
-
-        let first_page_size = std::cmp::min(model_count, page_size);
-        let mut stmt = conn.prepare_cached(build_query_for_page(first_page_size).as_str())?;
-
-        for _ in 0..page_count {
-            // If there are fewer than `page_size` pages left, the iterator will just take
-            // everything.
-            let page_iter = models.by_ref().take(page_size);
-
-            let current_page_size = page_iter.len();
-            if current_page_size != first_page_size {
-                stmt = conn.prepare_cached(build_query_for_page(current_page_size).as_str())?;
+            for row in models {
+                row.extend_params(&mut params);
             }
-
-            let params = page_iter.flat_map(|model| model.param_bindings());
-            stmt.execute(rusqlite::params_from_iter(params))?;
+            remainder_stmt.execute(params.as_slice())?;
+            params.clear();
         }
 
         Ok(())
@@ -196,15 +218,15 @@ impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for SourceFile {
     }
 }
 
-impl Insertable<2> for SourceFile {
-    const INSERT_QUERY_PRELUDE: &'static str = "INSERT INTO source_file (id, path) VALUES ";
-    const INSERT_PLACEHOLDER: &'static str = "(?, ?)";
+impl Insertable for SourceFile {
+    const TABLE_NAME: &'static str = "source_file";
+    const FIELDS: &'static [&'static str] = &["id", "path"];
 
-    fn param_bindings(&self) -> [&dyn rusqlite::ToSql; 2] {
-        [
+    fn extend_params<'a>(&'a self, params: &mut Vec<&'a dyn rusqlite::ToSql>) {
+        params.extend(&[
             &self.id as &dyn rusqlite::ToSql,
             &self.path as &dyn rusqlite::ToSql,
-        ]
+        ])
     }
 }
 
@@ -225,12 +247,21 @@ impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for CoverageSample {
     }
 }
 
-impl Insertable<8> for CoverageSample {
-    const INSERT_QUERY_PRELUDE: &'static str = "INSERT INTO coverage_sample (raw_upload_id, local_sample_id, source_file_id, line_no, coverage_type, hits, hit_branches, total_branches) VALUES ";
-    const INSERT_PLACEHOLDER: &'static str = "(?, ?, ?, ?, ?, ?, ?, ?)";
+impl Insertable for CoverageSample {
+    const TABLE_NAME: &'static str = "coverage_sample";
+    const FIELDS: &'static [&'static str] = &[
+        "raw_upload_id",
+        "local_sample_id",
+        "source_file_id",
+        "line_no",
+        "coverage_type",
+        "hits",
+        "hit_branches",
+        "total_branches",
+    ];
 
-    fn param_bindings(&self) -> [&dyn rusqlite::ToSql; 8] {
-        [
+    fn extend_params<'a>(&'a self, params: &mut Vec<&'a dyn rusqlite::ToSql>) {
+        params.extend(&[
             &self.raw_upload_id as &dyn rusqlite::ToSql,
             &self.local_sample_id as &dyn rusqlite::ToSql,
             &self.source_file_id as &dyn rusqlite::ToSql,
@@ -239,7 +270,7 @@ impl Insertable<8> for CoverageSample {
             &self.hits as &dyn rusqlite::ToSql,
             &self.hit_branches as &dyn rusqlite::ToSql,
             &self.total_branches as &dyn rusqlite::ToSql,
-        ]
+        ])
     }
 }
 
@@ -259,12 +290,20 @@ impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for BranchesData {
     }
 }
 
-impl Insertable<7> for BranchesData {
-    const INSERT_QUERY_PRELUDE: &'static str = "INSERT INTO branches_data (raw_upload_id, local_branch_id, source_file_id, local_sample_id, hits, branch_format, branch) VALUES ";
-    const INSERT_PLACEHOLDER: &'static str = "(?, ?, ?, ?, ?, ?, ?)";
+impl Insertable for BranchesData {
+    const TABLE_NAME: &'static str = "branches_data";
+    const FIELDS: &'static [&'static str] = &[
+        "raw_upload_id",
+        "local_branch_id",
+        "source_file_id",
+        "local_sample_id",
+        "hits",
+        "branch_format",
+        "branch",
+    ];
 
-    fn param_bindings(&self) -> [&dyn rusqlite::ToSql; 7] {
-        [
+    fn extend_params<'a>(&'a self, params: &mut Vec<&'a dyn rusqlite::ToSql>) {
+        params.extend(&[
             &self.raw_upload_id as &dyn rusqlite::ToSql,
             &self.local_branch_id as &dyn rusqlite::ToSql,
             &self.source_file_id as &dyn rusqlite::ToSql,
@@ -272,7 +311,7 @@ impl Insertable<7> for BranchesData {
             &self.hits as &dyn rusqlite::ToSql,
             &self.branch_format as &dyn rusqlite::ToSql,
             &self.branch as &dyn rusqlite::ToSql,
-        ]
+        ])
     }
 }
 
@@ -294,12 +333,22 @@ impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for MethodData {
     }
 }
 
-impl Insertable<9> for MethodData {
-    const INSERT_QUERY_PRELUDE: &'static str = "INSERT INTO method_data (raw_upload_id, local_method_id, source_file_id, local_sample_id, line_no, hit_branches, total_branches, hit_complexity_paths, total_complexity) VALUES ";
-    const INSERT_PLACEHOLDER: &'static str = "(?, ?, ?, ?, ?, ?, ?, ?, ?)";
+impl Insertable for MethodData {
+    const TABLE_NAME: &'static str = "method_data";
+    const FIELDS: &'static [&'static str] = &[
+        "raw_upload_id",
+        "local_method_id",
+        "source_file_id",
+        "local_sample_id",
+        "line_no",
+        "hit_branches",
+        "total_branches",
+        "hit_complexity_paths",
+        "total_complexity",
+    ];
 
-    fn param_bindings(&self) -> [&dyn rusqlite::ToSql; 9] {
-        [
+    fn extend_params<'a>(&'a self, params: &mut Vec<&'a dyn rusqlite::ToSql>) {
+        params.extend(&[
             &self.raw_upload_id as &dyn rusqlite::ToSql,
             &self.local_method_id as &dyn rusqlite::ToSql,
             &self.source_file_id as &dyn rusqlite::ToSql,
@@ -309,7 +358,7 @@ impl Insertable<9> for MethodData {
             &self.total_branches as &dyn rusqlite::ToSql,
             &self.hit_complexity_paths as &dyn rusqlite::ToSql,
             &self.total_complexity as &dyn rusqlite::ToSql,
-        ]
+        ])
     }
 }
 
@@ -331,12 +380,22 @@ impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for SpanData {
     }
 }
 
-impl Insertable<9> for SpanData {
-    const INSERT_QUERY_PRELUDE: &'static str = "INSERT INTO span_data (raw_upload_id, local_span_id, source_file_id, local_sample_id, hits, start_line, start_col, end_line, end_col) VALUES ";
-    const INSERT_PLACEHOLDER: &'static str = "(?, ?, ?, ?, ?, ?, ?, ?, ?)";
+impl Insertable for SpanData {
+    const TABLE_NAME: &'static str = "span_data";
+    const FIELDS: &'static [&'static str] = &[
+        "raw_upload_id",
+        "local_span_id",
+        "source_file_id",
+        "local_sample_id",
+        "hits",
+        "start_line",
+        "start_col",
+        "end_line",
+        "end_col",
+    ];
 
-    fn param_bindings(&self) -> [&dyn rusqlite::ToSql; 9] {
-        [
+    fn extend_params<'a>(&'a self, params: &mut Vec<&'a dyn rusqlite::ToSql>) {
+        params.extend(&[
             &self.raw_upload_id as &dyn rusqlite::ToSql,
             &self.local_span_id as &dyn rusqlite::ToSql,
             &self.source_file_id as &dyn rusqlite::ToSql,
@@ -346,7 +405,7 @@ impl Insertable<9> for SpanData {
             &self.start_col as &dyn rusqlite::ToSql,
             &self.end_line as &dyn rusqlite::ToSql,
             &self.end_col as &dyn rusqlite::ToSql,
-        ]
+        ])
     }
 }
 
@@ -363,18 +422,22 @@ impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for ContextAssoc {
     }
 }
 
-impl Insertable<4> for ContextAssoc {
-    const INSERT_QUERY_PRELUDE: &'static str =
-        "INSERT INTO context_assoc (context_id, raw_upload_id, local_sample_id, local_span_id) VALUES ";
-    const INSERT_PLACEHOLDER: &'static str = "(?, ?, ?, ?)";
+impl Insertable for ContextAssoc {
+    const TABLE_NAME: &'static str = "context_assoc";
+    const FIELDS: &'static [&'static str] = &[
+        "context_id",
+        "raw_upload_id",
+        "local_sample_id",
+        "local_span_id",
+    ];
 
-    fn param_bindings(&self) -> [&dyn rusqlite::ToSql; 4] {
-        [
+    fn extend_params<'a>(&'a self, params: &mut Vec<&'a dyn rusqlite::ToSql>) {
+        params.extend(&[
             &self.context_id as &dyn rusqlite::ToSql,
             &self.raw_upload_id as &dyn rusqlite::ToSql,
             &self.local_sample_id as &dyn rusqlite::ToSql,
             &self.local_span_id as &dyn rusqlite::ToSql,
-        ]
+        ])
     }
 }
 
@@ -390,17 +453,16 @@ impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for Context {
     }
 }
 
-impl Insertable<3> for Context {
-    const INSERT_QUERY_PRELUDE: &'static str =
-        "INSERT INTO context (id, context_type, name) VALUES ";
-    const INSERT_PLACEHOLDER: &'static str = "(?, ?, ?)";
+impl Insertable for Context {
+    const TABLE_NAME: &'static str = "context";
+    const FIELDS: &'static [&'static str] = &["id", "context_type", "name"];
 
-    fn param_bindings(&self) -> [&dyn rusqlite::ToSql; 3] {
-        [
+    fn extend_params<'a>(&'a self, params: &mut Vec<&'a dyn rusqlite::ToSql>) {
+        params.extend(&[
             &self.id as &dyn rusqlite::ToSql,
             &self.context_type as &dyn rusqlite::ToSql,
             &self.name as &dyn rusqlite::ToSql,
-        ]
+        ])
     }
 }
 
@@ -487,16 +549,28 @@ mod tests {
         data: String,
     }
 
-    impl Insertable<2> for TestModel {
-        const INSERT_QUERY_PRELUDE: &'static str = "INSERT INTO test (id, data) VALUES ";
-        const INSERT_PLACEHOLDER: &'static str = "(?, ?)";
+    impl Insertable for TestModel {
+        const TABLE_NAME: &'static str = "test";
+        const FIELDS: &'static [&'static str] = &["id", "data"];
 
-        fn param_bindings(&self) -> [&dyn rusqlite::ToSql; 2] {
-            [
+        fn extend_params<'a>(&'a self, params: &mut Vec<&'a dyn rusqlite::ToSql>) {
+            params.extend(&[
                 &self.id as &dyn rusqlite::ToSql,
                 &self.data as &dyn rusqlite::ToSql,
-            ]
+            ])
         }
+    }
+
+    #[test]
+    fn query_builder() {
+        let query = TestModel::build_query(1);
+        assert_eq!(query, "INSERT INTO test (id, data) VALUES (?, ?);");
+
+        let query = TestModel::build_query(3);
+        assert_eq!(
+            query,
+            "INSERT INTO test (id, data) VALUES (?, ?), (?, ?), (?, ?);"
+        );
     }
 
     impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for TestModel {
@@ -554,8 +628,8 @@ mod tests {
             data: "foo".to_string(),
         };
 
-        <TestModel as Insertable<2>>::insert(&model, &ctx.report.conn).unwrap();
-        let duplicate_result = <TestModel as Insertable<2>>::insert(&model, &ctx.report.conn);
+        model.insert(&ctx.report.conn).unwrap();
+        let duplicate_result = model.insert(&ctx.report.conn);
 
         let test_models = list_test_models(&ctx.report);
         assert_eq!(test_models, vec![model]);
@@ -571,39 +645,17 @@ mod tests {
     fn test_test_model_multi_insert() {
         let ctx = setup();
 
-        // We lower the limit to force the multi_insert pagination logic to kick in.
-        // We'll use 5 models, each with 2 variables, so we need 10 variables total.
-        // Setting the limit to 4 should wind up using multiple pages.
-        let _ = ctx
-            .report
-            .conn
-            .set_limit(rusqlite::limits::Limit::SQLITE_LIMIT_VARIABLE_NUMBER, 4);
+        // Our chunk-size is set to 50, so inserting more than twice that will use
+        // multiple chunks, as well as using single inserts for the remainder.
 
-        let models_to_insert = vec![
-            TestModel {
-                id: 1,
-                data: "foo".to_string(),
-            },
-            TestModel {
-                id: 2,
-                data: "bar".to_string(),
-            },
-            TestModel {
-                id: 3,
-                data: "baz".to_string(),
-            },
-            TestModel {
-                id: 4,
-                data: "abc".to_string(),
-            },
-            TestModel {
-                id: 5,
-                data: "def".to_string(),
-            },
-        ];
+        let models_to_insert: Vec<_> = (0..111)
+            .map(|id| TestModel {
+                id,
+                data: format!("Test {id}"),
+            })
+            .collect();
 
-        <TestModel as Insertable<2>>::multi_insert(models_to_insert.iter(), &ctx.report.conn)
-            .unwrap();
+        TestModel::multi_insert(models_to_insert.iter(), &ctx.report.conn).unwrap();
 
         let test_models = list_test_models(&ctx.report);
         assert_eq!(test_models, models_to_insert);
@@ -618,8 +670,8 @@ mod tests {
             path: "src/report/report.rs".to_string(),
         };
 
-        <SourceFile as Insertable<2>>::insert(&model, &ctx.report.conn).unwrap();
-        let duplicate_result = <SourceFile as Insertable<2>>::insert(&model, &ctx.report.conn);
+        model.insert(&ctx.report.conn).unwrap();
+        let duplicate_result = model.insert(&ctx.report.conn);
 
         let files = ctx.report.list_files().unwrap();
         assert_eq!(files, vec![model]);
@@ -641,8 +693,8 @@ mod tests {
             name: "test_upload".to_string(),
         };
 
-        <Context as Insertable<3>>::insert(&model, &ctx.report.conn).unwrap();
-        let duplicate_result = <Context as Insertable<3>>::insert(&model, &ctx.report.conn);
+        model.insert(&ctx.report.conn).unwrap();
+        let duplicate_result = model.insert(&ctx.report.conn);
 
         let contexts = ctx.report.list_contexts().unwrap();
         assert_eq!(contexts, vec![model]);
@@ -676,7 +728,7 @@ mod tests {
             local_span_id: None,
         };
 
-        <ContextAssoc as Insertable<4>>::insert(&model, &report.conn).unwrap();
+        model.insert(&report.conn).unwrap();
         let assoc: ContextAssoc = report
             .conn
             .query_row(
@@ -717,8 +769,8 @@ mod tests {
             ..Default::default()
         };
 
-        <CoverageSample as Insertable<8>>::insert(&model, &report.conn).unwrap();
-        let duplicate_result = <CoverageSample as Insertable<8>>::insert(&model, &report.conn);
+        model.insert(&report.conn).unwrap();
+        let duplicate_result = model.insert(&report.conn);
 
         let samples = report.list_coverage_samples().unwrap();
         assert_eq!(samples, vec![model]);
@@ -744,15 +796,13 @@ mod tests {
         let report = report_builder.build().unwrap();
 
         let local_sample_id = rand::random();
-        <CoverageSample as Insertable<8>>::insert(
-            &CoverageSample {
-                raw_upload_id: raw_upload.id,
-                local_sample_id,
-                source_file_id: source_file.id,
-                ..Default::default()
-            },
-            &report.conn,
-        )
+        CoverageSample {
+            raw_upload_id: raw_upload.id,
+            local_sample_id,
+            source_file_id: source_file.id,
+            ..Default::default()
+        }
+        .insert(&report.conn)
         .unwrap();
 
         let model = BranchesData {
@@ -763,8 +813,8 @@ mod tests {
             ..Default::default()
         };
 
-        <BranchesData as Insertable<7>>::insert(&model, &report.conn).unwrap();
-        let duplicate_result = <BranchesData as Insertable<7>>::insert(&model, &report.conn);
+        model.insert(&report.conn).unwrap();
+        let duplicate_result = model.insert(&report.conn);
 
         let branch: BranchesData = report
             .conn
@@ -810,8 +860,8 @@ mod tests {
             ..Default::default()
         };
 
-        <MethodData as Insertable<9>>::insert(&model, &report.conn).unwrap();
-        let duplicate_result = <MethodData as Insertable<9>>::insert(&model, &report.conn);
+        model.insert(&report.conn).unwrap();
+        let duplicate_result = model.insert(&report.conn);
 
         let method: MethodData = report
             .conn
@@ -849,8 +899,8 @@ mod tests {
             ..Default::default()
         };
 
-        <SpanData as Insertable<9>>::insert(&model, &report.conn).unwrap();
-        let duplicate_result = <SpanData as Insertable<9>>::insert(&model, &report.conn);
+        model.insert(&report.conn).unwrap();
+        let duplicate_result = model.insert(&report.conn);
 
         let branch: SpanData = report
             .conn
