@@ -31,6 +31,8 @@ Considering following suit for your own new feature.
 
 Install lint hooks with `pip install pre-commit && pre-commit install`.
 
+Large sample test reports are checked in using [Git LFS](https://git-lfs.com/). Tests and benchmarks may reference them so installing it yourself is recommended.
+
 ### Writing new parsers
 
 **TBD: Design not settled**
@@ -53,4 +55,11 @@ Non-XML formats lack clean OOTB support for streaming so `codecov-rs` currently 
 Run tests with:
 ```
 $ cargo test
+```
+
+### Benchmarks
+
+Run benchmarks with:
+```
+$ cargo bench
 ```
