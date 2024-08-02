@@ -29,6 +29,8 @@ The `examples/` directory contains runnable commands for developers including:
 
 Considering following suit for your own new feature.
 
+Install lint hooks with `pip install pre-commit && pre-commit install`.
+
 ### Writing new parsers
 
 **TBD: Design not settled**

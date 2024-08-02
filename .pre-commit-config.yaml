@@ -1,0 +1,18 @@
+repos:
+  - repo: local
+    hooks:
+      - id: format
+        name: cargo fmt
+        entry: cargo fmt
+        args: ["--check", "--"]
+        require_serial: true
+        language: system
+        types: [rust]
+      - id: clippy
+        name: cargo clippy
+        entry: cargo clippy
+        args: ["--", "-D", "warnings"]
+        require_serial: true
+        pass_filenames: false
+        types: [rust]
+        language: system
