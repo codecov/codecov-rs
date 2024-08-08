@@ -123,11 +123,8 @@ impl Report for TestReport {
 }
 
 impl ReportBuilder<TestReport> for TestReport {
-    fn insert_file(&mut self, path: String) -> Result<models::SourceFile> {
-        let file = models::SourceFile {
-            id: seahash::hash(path.as_bytes()) as i64,
-            path,
-        };
+    fn insert_file(&mut self, path: &str) -> Result<models::SourceFile> {
+        let file = models::SourceFile::new(path);
         self.files.push(file.clone());
         Ok(file)
     }
@@ -141,11 +138,7 @@ impl ReportBuilder<TestReport> for TestReport {
         Ok(upload_details)
     }
 
-    fn insert_context(
-        &mut self,
-        _context_type: models::ContextType,
-        _name: &str,
-    ) -> Result<models::Context> {
+    fn insert_context(&mut self, _name: &str) -> Result<models::Context> {
         todo!()
     }
 

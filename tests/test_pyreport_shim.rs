@@ -38,10 +38,6 @@ fn setup() -> Ctx {
     Ctx { temp_dir, db_file }
 }
 
-fn hash_id(key: &str) -> i64 {
-    seahash::hash(key.as_bytes()) as i64
-}
-
 #[test]
 fn test_parse_report_json() {
     let input = common::read_sample_file(Path::new("codecov-rs-reports-json-d2a9ba1.txt"));
@@ -59,18 +55,9 @@ fn test_parse_report_json() {
     };
 
     let expected_files = vec![
-        models::SourceFile {
-            id: hash_id("src/report.rs"),
-            path: "src/report.rs".to_string(),
-        },
-        models::SourceFile {
-            id: hash_id("src/report/models.rs"),
-            path: "src/report/models.rs".to_string(),
-        },
-        models::SourceFile {
-            id: hash_id("src/report/schema.rs"),
-            path: "src/report/schema.rs".to_string(),
-        },
+        models::SourceFile::new("src/report.rs"),
+        models::SourceFile::new("src/report/models.rs"),
+        models::SourceFile::new("src/report/schema.rs"),
     ];
 
     let expected_session = models::RawUpload {
@@ -132,7 +119,7 @@ fn test_parse_chunks_file() {
     .iter()
     .enumerate()
     {
-        let file = report_builder.insert_file(file.to_string()).unwrap();
+        let file = report_builder.insert_file(file).unwrap();
         report_json_files.insert(i, file.id);
     }
 
@@ -263,18 +250,9 @@ fn test_parse_pyreport() {
     };
 
     let expected_files = [
-        models::SourceFile {
-            id: hash_id("src/report.rs"),
-            path: "src/report.rs".to_string(),
-        },
-        models::SourceFile {
-            id: hash_id("src/report/models.rs"),
-            path: "src/report/models.rs".to_string(),
-        },
-        models::SourceFile {
-            id: hash_id("src/report/schema.rs"),
-            path: "src/report/schema.rs".to_string(),
-        },
+        models::SourceFile::new("src/report.rs"),
+        models::SourceFile::new("src/report/models.rs"),
+        models::SourceFile::new("src/report/schema.rs"),
     ];
 
     // Helper function for creating our expected values

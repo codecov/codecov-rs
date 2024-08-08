@@ -333,8 +333,8 @@ mod tests {
 
     fn build_sample_report(path: PathBuf) -> Result<SqliteReport> {
         let mut builder = SqliteReportBuilder::new_with_seed(path, 5)?;
-        let file_1 = builder.insert_file("src/report/report.rs".to_string())?;
-        let file_2 = builder.insert_file("src/report/models.rs".to_string())?;
+        let file_1 = builder.insert_file("src/report/report.rs")?;
+        let file_2 = builder.insert_file("src/report/models.rs")?;
 
         let upload_1 = builder.insert_raw_upload(models::RawUpload {
             timestamp: Some(123),
@@ -543,7 +543,7 @@ mod tests {
             ..Default::default()
         })?;
 
-        let label_1 = builder.insert_context(models::ContextType::TestCase, "test-case")?;
+        let label_1 = builder.insert_context("test-case")?;
         let _ = builder.associate_context(models::ContextAssoc {
             context_id: label_1.id,
             raw_upload_id: upload_1.id,
@@ -557,7 +557,7 @@ mod tests {
             ..Default::default()
         })?;
 
-        let label_2 = builder.insert_context(models::ContextType::TestCase, "test-case 2")?;
+        let label_2 = builder.insert_context("test-case 2")?;
         let _ = builder.associate_context(models::ContextAssoc {
             context_id: label_2.id,
             raw_upload_id: upload_1.id,

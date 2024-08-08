@@ -98,7 +98,7 @@ pub fn report_file<S: StrStream, R: Report, B: ReportBuilder<R>>(
     let file = buf
         .state
         .report_builder
-        .insert_file(filename)
+        .insert_file(&filename)
         .map_err(|e| ErrMode::from_external_error(buf, ErrorKind::Fail, e))?;
 
     Ok((chunks_index as usize, file.id))
@@ -308,10 +308,7 @@ mod tests {
                 state: ctx.parse_ctx,
             };
 
-            let inserted_model = models::SourceFile {
-                id: hash_id(path),
-                path: path.to_string(),
-            };
+            let inserted_model = models::SourceFile::new(path);
 
             buf.state
                 .report_builder
