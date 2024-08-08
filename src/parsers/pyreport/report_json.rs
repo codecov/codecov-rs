@@ -274,15 +274,13 @@ pub fn parse_report_json<S: StrStream, R: Report, B: ReportBuilder<R>>(
 
 #[cfg(test)]
 mod tests {
-    use mockall::predicate::*;
-
     use super::*;
-    use crate::report::{MockReport, MockReportBuilder};
+    use crate::report::test::{TestReport, TestReportBuilder};
 
-    type TestStream<'a> = ReportOutputStream<&'a str, MockReport, MockReportBuilder<MockReport>>;
+    type TestStream<'a> = ReportOutputStream<&'a str, TestReport, TestReportBuilder>;
 
     struct Ctx {
-        parse_ctx: ReportBuilderCtx<MockReport, MockReportBuilder<MockReport>>,
+        parse_ctx: ReportBuilderCtx<TestReport, TestReportBuilder>,
     }
 
     fn hash_id(path: &str) -> i64 {
@@ -290,7 +288,7 @@ mod tests {
     }
 
     fn setup() -> Ctx {
-        let report_builder = MockReportBuilder::new();
+        let report_builder = TestReportBuilder::default();
         let parse_ctx = ReportBuilderCtx::new(report_builder);
         Ctx { parse_ctx }
     }
@@ -308,15 +306,14 @@ mod tests {
                 state: ctx.parse_ctx,
             };
 
-            let inserted_model = models::SourceFile::new(path);
-
-            buf.state
-                .report_builder
-                .expect_insert_file()
-                .with(eq(path.to_string()))
-                .return_once(move |_| Ok(inserted_model));
-
-            report_file.parse_next(&mut buf)
+            let res = report_file.parse_next(&mut buf);
+            if res.is_ok() {
+                assert_eq!(
+                    buf.state.report_builder.build().unwrap().files,
+                    &[models::SourceFile::new(path)]
+                );
+            }
+            res
         }
 
         #[test]
@@ -370,45 +367,33 @@ mod tests {
             );
         }
 
-        fn test_report_session(
-            job_name: Option<&str>,
-            upload_id: i64,
-            input: &str,
-        ) -> PResult<(usize, i64)> {
+        fn test_report_session(job_name: Option<&str>, input: &str) -> PResult<(usize, i64)> {
             let ctx = setup();
             let mut buf = TestStream {
                 input,
                 state: ctx.parse_ctx,
             };
 
-            let inserted_upload = models::RawUpload {
-                job_name: job_name.map(str::to_owned),
-                ..Default::default()
-            };
-
-            buf.state
-                .report_builder
-                .expect_insert_raw_upload()
-                .with(eq(inserted_upload))
-                .return_once(move |upload| {
-                    Ok(models::RawUpload {
-                        id: upload_id,
-                        ..upload
-                    })
-                });
-
-            report_session.parse_next(&mut buf)
+            let res = report_session.parse_next(&mut buf);
+            if res.is_ok() {
+                let report = buf.state.report_builder.build().unwrap();
+                assert_eq!(
+                    report.uploads,
+                    &[models::RawUpload {
+                        id: 0,
+                        job_name: job_name.map(str::to_owned),
+                        ..Default::default()
+                    }]
+                );
+            }
+            res
         }
 
         #[test]
         fn test_report_session_simple_valid_case() {
             assert_eq!(
-                test_report_session(
-                    Some("codecov-rs CI"),
-                    5,
-                    "\"0\": {\"j\": \"codecov-rs CI\"}",
-                ),
-                Ok((0, 5))
+                test_report_session(Some("codecov-rs CI"), "\"0\": {\"j\": \"codecov-rs CI\"}",),
+                Ok((0, 0))
             );
         }
 
@@ -439,6 +424,7 @@ mod tests {
             };
 
             let inserted_upload = models::RawUpload {
+                id: 0,
                 timestamp: Some(timestamp),
                 raw_upload_url: Some(
                     "v4/raw/2024-01-09/<cut>/<cut>/<cut>/340c0c0b-a955-46a0-9de9-3a9b5f2e81e2.txt"
@@ -454,22 +440,18 @@ mod tests {
                 env: Some("env".to_string()),
                 session_type: Some("uploaded".to_string()),
                 session_extras: Some(JsonVal::Object(JsonMap::new())),
-                ..Default::default()
             };
 
-            buf.state
-                .report_builder
-                .expect_insert_raw_upload()
-                .with(eq(inserted_upload))
-                .return_once(|upload| Ok(models::RawUpload { id: 1337, ..upload }));
+            assert_eq!(report_session.parse_next(&mut buf), Ok((0, 0)));
 
-            assert_eq!(report_session.parse_next(&mut buf), Ok((0, 1337)));
+            let report = buf.state.report_builder.build().unwrap();
+            assert_eq!(report.uploads, &[inserted_upload]);
         }
 
         #[test]
         fn test_report_session_malformed_session_index() {
             assert_eq!(
-                test_report_session(Some("codecov-rs CI"), 5, "'0\": {\"j\": \"codecov-rs CI\"}",),
+                test_report_session(Some("codecov-rs CI"), "'0\": {\"j\": \"codecov-rs CI\"}",),
                 Err(ErrMode::Backtrack(ContextError::new()))
             );
         }
@@ -477,11 +459,7 @@ mod tests {
         #[test]
         fn test_report_session_session_index_not_numeric() {
             assert_eq!(
-                test_report_session(
-                    Some("codecov-rs CI"),
-                    5,
-                    "\"str\": {\"j\": \"codecov-rs CI\"}",
-                ),
+                test_report_session(Some("codecov-rs CI"), "\"str\": {\"j\": \"codecov-rs CI\"}",),
                 Err(ErrMode::Cut(ContextError::new()))
             );
         }
@@ -491,7 +469,6 @@ mod tests {
             assert_eq!(
                 test_report_session(
                     Some("codecov-rs CI"),
-                    5,
                     "\"3.34\": {\"j\": \"codecov-rs CI\"}",
                 ),
                 Err(ErrMode::Cut(ContextError::new()))
@@ -501,23 +478,20 @@ mod tests {
         #[test]
         fn test_report_session_missing_job_key() {
             assert_eq!(
-                test_report_session(None, 5, "\"0\": {\"x\": \"codecov-rs CI\"}",),
-                Ok((0, 5))
+                test_report_session(None, "\"0\": {\"x\": \"codecov-rs CI\"}",),
+                Ok((0, 0))
             );
         }
 
         #[test]
         fn test_report_session_job_key_wrong_type() {
-            assert_eq!(
-                test_report_session(None, 5, "\"0\": {\"j\": []}",),
-                Ok((0, 5))
-            );
+            assert_eq!(test_report_session(None, "\"0\": {\"j\": []}",), Ok((0, 0)));
         }
 
         #[test]
         fn test_report_session_encoded_session_wrong_type() {
             assert_eq!(
-                test_report_session(Some("codecov-rs CI"), 5, "\"0\": [\"j\", []]",),
+                test_report_session(Some("codecov-rs CI"), "\"0\": [\"j\", []]",),
                 Err(ErrMode::Cut(ContextError::new()))
             );
         }
@@ -529,19 +503,17 @@ mod tests {
                 state: ctx.parse_ctx,
             };
 
-            for path in paths.iter() {
-                let inserted_file = models::SourceFile {
-                    id: hash_id(path),
-                    path: path.to_string(),
-                };
-                buf.state
-                    .report_builder
-                    .expect_insert_file()
-                    .with(eq(path.to_string()))
-                    .return_once(move |_| Ok(inserted_file));
-            }
+            let res = report_files_dict.parse_next(&mut buf);
+            if res.is_ok() {
+                let report = buf.state.report_builder.build().unwrap();
 
-            report_files_dict.parse_next(&mut buf)
+                let expected_files: Vec<_> = paths
+                    .iter()
+                    .map(|path| models::SourceFile::new(path))
+                    .collect();
+                assert_eq!(report.files, expected_files);
+            }
+            res
         }
 
         #[test]
@@ -617,7 +589,7 @@ mod tests {
         // Name-building behavior is tested separately + covered in the
         // `fully_populated` test case.
         fn test_report_sessions_dict(
-            jobs_with_raw_upload_ids: &[(Option<&str>, i64)],
+            jobs: &[Option<&str>],
             input: &str,
         ) -> PResult<HashMap<usize, i64>> {
             let ctx = setup();
@@ -626,35 +598,32 @@ mod tests {
                 state: ctx.parse_ctx,
             };
 
-            for (job_name, upload_id) in jobs_with_raw_upload_ids.iter().cloned() {
-                let inserted_upload = models::RawUpload {
-                    job_name: job_name.map(str::to_owned),
-                    ..Default::default()
-                };
+            let res = report_sessions_dict.parse_next(&mut buf);
+            if res.is_ok() {
+                let report = buf.state.report_builder.build().unwrap();
 
-                buf.state
-                    .report_builder
-                    .expect_insert_raw_upload()
-                    .with(eq(inserted_upload))
-                    .return_once(move |upload| {
-                        Ok(models::RawUpload {
-                            id: upload_id,
-                            ..upload
-                        })
-                    });
+                let expected_uploads: Vec<_> = jobs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, name)| models::RawUpload {
+                        id: i as i64,
+                        job_name: name.map(str::to_owned),
+                        ..Default::default()
+                    })
+                    .collect();
+                assert_eq!(report.uploads, expected_uploads);
             }
-
-            report_sessions_dict.parse_next(&mut buf)
+            res
         }
 
         #[test]
         fn test_report_sessions_dict_single_valid_session() {
             assert_eq!(
                 test_report_sessions_dict(
-                    &[(Some("codecov-rs CI"), 5)],
+                    &[Some("codecov-rs CI")],
                     "{\"0\": {\"j\": \"codecov-rs CI\"}}",
                 ),
-                Ok(HashMap::from([(0, 5)]))
+                Ok(HashMap::from([(0, 0)]))
             );
         }
 
@@ -662,10 +631,10 @@ mod tests {
         fn test_report_sessions_dict_multiple_valid_sessions() {
             assert_eq!(
                 test_report_sessions_dict(
-                    &[(Some("codecov-rs CI"), 5), (Some("codecov-rs CI 2"), 10)],
+                    &[Some("codecov-rs CI"), Some("codecov-rs CI 2")],
                     "{\"0\": {\"j\": \"codecov-rs CI\"}, \"1\": {\"j\": \"codecov-rs CI 2\"}}",
                 ),
-                Ok(HashMap::from([(0, 5), (1, 10),]))
+                Ok(HashMap::from([(0, 0), (1, 1)]))
             );
         }
 
@@ -673,7 +642,7 @@ mod tests {
         fn test_report_sessions_dict_multiple_valid_sessions_trailing_comma() {
             assert_eq!(
                 test_report_sessions_dict(
-                    &[(Some("codecov-rs CI"), 5), (Some("codecov-rs CI 2"), 10)],
+                    &[Some("codecov-rs CI"), Some("codecov-rs CI 2")],
                     "{\"0\": {\"j\": \"codecov-rs CI\"}, \"1\": {\"j\": \"codecov-rs CI 2\"},}",
                 ),
                 Err(ErrMode::Cut(ContextError::new()))
@@ -686,18 +655,18 @@ mod tests {
             // the behavior that we want. we want to error
             assert_eq!(
                 test_report_sessions_dict(
-                    &[(Some("codecov-rs CI"), 5), (Some("codecov-rs CI 2"), 10)],
+                    &[Some("codecov-rs CI"), Some("codecov-rs CI 2")],
                     "{\"0\": {\"j\": \"codecov-rs CI\"}, \"0\": {\"j\": \"codecov-rs CI 2\"}}",
                 ),
-                Ok(HashMap::from([(0, 10)]))
+                Ok(HashMap::from([(0, 1)]))
             );
         }
 
         #[test]
         fn test_report_sessions_dict_single_malformed_session() {
             assert_eq!(
-                test_report_sessions_dict(&[(None, 5)], "{\"0\": {\"xj\": \"codecov-rs CI\"}}",),
-                Ok(HashMap::from([(0, 5)]))
+                test_report_sessions_dict(&[None], "{\"0\": {\"xj\": \"codecov-rs CI\"}}",),
+                Ok(HashMap::from([(0, 0)]))
             );
         }
 
@@ -705,10 +674,10 @@ mod tests {
         fn test_report_sessions_dict_invalid_session_after_valid_session() {
             assert_eq!(
                 test_report_sessions_dict(
-                    &[(Some("codecov-rs CI"), 5), (None, 10)],
+                    &[Some("codecov-rs CI"), None],
                     "{\"0\": {\"j\": \"codecov-rs CI\"}, \"1\": {\"xj\": \"codecov-rs CI 2\"}}",
                 ),
-                Ok(HashMap::from([(0, 5), (1, 10),]))
+                Ok(HashMap::from([(0, 0), (1, 1)]))
             );
         }
 
@@ -716,7 +685,7 @@ mod tests {
         fn test_report_sessions_dict_wrong_type() {
             assert_eq!(
                 test_report_sessions_dict(
-                    &[(Some("codecov-rs CI"), 5)],
+                    &[Some("codecov-rs CI")],
                     "{\"0\": [\"j\": \"codecov-rs CI\"}]",
                 ),
                 Err(ErrMode::Cut(ContextError::new()))
@@ -730,7 +699,7 @@ mod tests {
 
         fn test_report_json(
             paths: &[&str],
-            jobs_with_raw_upload_ids: &[(&str, i64)],
+            jobs: &[&str],
             input: &str,
         ) -> PResult<(HashMap<usize, i64>, HashMap<usize, i64>)> {
             let ctx = setup();
@@ -739,64 +708,55 @@ mod tests {
                 state: ctx.parse_ctx,
             };
 
-            for path in paths.iter() {
-                let inserted_file = models::SourceFile {
-                    id: hash_id(path),
-                    path: path.to_string(),
-                };
-                buf.state
-                    .report_builder
-                    .expect_insert_file()
-                    .with(eq(path.to_string()))
-                    .return_once(move |_| Ok(inserted_file));
+            let res = parse_report_json.parse_next(&mut buf);
+            if res.is_ok() {
+                let report = buf.state.report_builder.build().unwrap();
+
+                let expected_files: Vec<_> = paths
+                    .iter()
+                    .map(|path| models::SourceFile::new(path))
+                    .collect();
+                assert_eq!(report.files, expected_files);
+
+                let expected_uploads: Vec<_> = jobs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, name)| models::RawUpload {
+                        id: i as i64,
+                        job_name: Some(name.to_string()),
+                        ..Default::default()
+                    })
+                    .collect();
+                assert_eq!(report.uploads, expected_uploads);
             }
-
-            for (job_name, raw_upload_id) in jobs_with_raw_upload_ids.iter().cloned() {
-                let inserted_upload = models::RawUpload {
-                    job_name: Some(job_name.to_string()),
-                    ..Default::default()
-                };
-
-                buf.state
-                    .report_builder
-                    .expect_insert_raw_upload()
-                    .with(eq(inserted_upload))
-                    .return_once(move |upload| {
-                        Ok(models::RawUpload {
-                            id: raw_upload_id,
-                            ..upload
-                        })
-                    });
-            }
-
-            parse_report_json.parse_next(&mut buf)
+            res
         }
 
         #[test]
         fn test_report_json_simple_valid_case() {
             assert_eq!(test_report_json(
                 &["src/report.rs"],
-                &[("codecov-rs CI", 5)],
+                &["codecov-rs CI"],
                 "{\"files\": {\"src/report.rs\": [0, {}, [], null]}, \"sessions\": {\"0\": {\"j\": \"codecov-rs CI\"}}}",
-            ), Ok((HashMap::from([(0, hash_id("src/report.rs"))]), HashMap::from([(0, 5)]))))
+            ), Ok((HashMap::from([(0, hash_id("src/report.rs"))]), HashMap::from([(0, 0)]))))
         }
 
         #[test]
         fn test_report_json_two_files_two_sessions() {
             assert_eq!(test_report_json(
                 &["src/report.rs", "src/report/models.rs"],
-                &[("codecov-rs CI", 5), ("codecov-rs CI 2", 10)],
+                &["codecov-rs CI", "codecov-rs CI 2"],
                 "{\"files\": {\"src/report.rs\": [0, {}, [], null], \"src/report/models.rs\": [1, {}, [], null]}, \"sessions\": {\"0\": {\"j\": \"codecov-rs CI\"}, \"1\": {\"j\": \"codecov-rs CI 2\"}}}",
-            ), Ok((HashMap::from([(0, hash_id("src/report.rs")), (1, hash_id("src/report/models.rs"))]), HashMap::from([(0, 5), (1, 10)]))));
+            ), Ok((HashMap::from([(0, hash_id("src/report.rs")), (1, hash_id("src/report/models.rs"))]), HashMap::from([(0, 0), (1, 1)]))));
         }
 
         #[test]
         fn test_report_json_empty_files() {
             assert_eq!(test_report_json(
                 &[],
-                &[("codecov-rs CI", 5), ("codecov-rs CI 2", 10)],
+                &["codecov-rs CI","codecov-rs CI 2"],
                 "{\"files\": {}, \"sessions\": {\"0\": {\"j\": \"codecov-rs CI\"}, \"1\": {\"j\": \"codecov-rs CI 2\"}}}",
-            ), Ok((HashMap::new(), HashMap::from([(0, 5), (1, 10)]))));
+            ), Ok((HashMap::new(), HashMap::from([(0, 0), (1, 1)]))));
         }
 
         #[test]
@@ -820,7 +780,7 @@ mod tests {
         fn test_report_json_sessions_before_files() {
             assert_eq!(test_report_json(
                 &["src/report.rs", "src/report/models.rs"],
-                &[("codecov-rs CI", 5), ("codecov-rs CI 2", 10)],
+                &["codecov-rs CI", "codecov-rs CI 2"],
                 "{\"sessions\": {\"0\": {\"j\": \"codecov-rs CI\"}, \"1\": {\"j\": \"codecov-rs CI 2\"}}, \"files\": {\"src/report.rs\": [0, {}, [], null], \"src/report/models.rs\": [1, {}, [], null]}}",
             ), Err(ErrMode::Cut(ContextError::new())));
         }
@@ -829,7 +789,7 @@ mod tests {
         fn test_report_json_missing_files() {
             assert_eq!(test_report_json(
                 &["src/report.rs", "src/report/models.rs"],
-                &[("codecov-rs CI", 5), ("codecov-rs CI 2", 10)],
+                &["codecov-rs CI","codecov-rs CI 2"],
                 "{\"sessions\": {\"0\": {\"j\": \"codecov-rs CI\"}, \"1\": {\"j\": \"codecov-rs CI 2\"}}}",
             ), Err(ErrMode::Cut(ContextError::new())));
         }
@@ -838,7 +798,7 @@ mod tests {
         fn test_report_json_missing_sessions() {
             assert_eq!(test_report_json(
                 &["src/report.rs", "src/report/models.rs"],
-                &[("codecov-rs CI", 5), ("codecov-rs CI 2", 10)],
+                &["codecov-rs CI", "codecov-rs CI 2"],
                 "{\"files\": {\"src/report.rs\": [0, {}, [], null], \"src/report/models.rs\": [1, {}, [], null]}}",
             ), Err(ErrMode::Cut(ContextError::new())));
         }
@@ -847,7 +807,7 @@ mod tests {
         fn test_report_json_one_invalid_file() {
             assert_eq!(test_report_json(
                 &["src/report.rs", "src/report/models.rs"],
-                &[("codecov-rs CI", 5), ("codecov-rs CI 2", 10)],
+                &["codecov-rs CI", "codecov-rs CI 2"],
                 "{\"files\": {\"src/report.rs\": [0, {}, [], null], \"src/report/models.rs\": [null, {}, [], null]}, \"sessions\": {\"0\": {\"j\": \"codecov-rs CI\"}, \"1\": {\"j\": \"codecov-rs CI 2\"}}}",
             ), Err(ErrMode::Cut(ContextError::new())));
         }
@@ -856,7 +816,7 @@ mod tests {
         fn test_report_json_one_invalid_session() {
             assert_eq!(test_report_json(
                 &["src/report.rs", "src/report/models.rs"],
-                &[("codecov-rs CI", 5), ("codecov-rs CI 2", 10)],
+                &["codecov-rs CI", "codecov-rs CI 2"],
                 "{\"files\": {\"src/report.rs\": [0, {}, [], null], \"src/report/models.rs\": [1, {}, [], null]}, \"sessions\": {\"0\": {\"j\": \"codecov-rs CI\"}, \"j\": {\"xj\": \"codecov-rs CI 2\"}}}",
             ), Err(ErrMode::Cut(ContextError::new())));
         }
