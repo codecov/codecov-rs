@@ -85,14 +85,15 @@
  * - reads 8 bytes at a time, nice for longer inputs
  * - outputs 64 bytes
  *
+ * If we need to change it, use SQLite "schema version" to mark new versions
+ * which should use a different hash function.
+ *
  * SQLite `INTEGER` values are variable-size but they can be up to 64 bits,
  * signed, so numeric types use `i64`. Since our numeric data is
  * non-negative, we're effectively using using `u32`s in an `i64` wrapper.
  * If we wind up needing `u64`s, we can probably cast to `i64` before saving
  * and cast back to `u64` when querying.
  */
-
-use strum_macros::{Display, EnumString};
 
 use crate::parsers::json::JsonVal;
 
@@ -122,15 +123,6 @@ pub enum BranchFormat {
     BlockAndBranch,
 }
 
-#[derive(EnumString, Display, Debug, PartialEq, Clone, Copy, Default)]
-pub enum ContextType {
-    /// A [`Context`] with this type represents a test case, and every
-    /// [`CoverageSample`] associated with it is a measurement that applies
-    /// to that test case.
-    #[default]
-    TestCase,
-}
-
 /// Each source file represented in the coverage data should have a
 /// [`SourceFile`] record with its path relative to the project's root.
 #[derive(PartialEq, Debug, Default, Clone)]
@@ -140,6 +132,16 @@ pub struct SourceFile {
 
     /// Should be relative to the project's root.
     pub path: String,
+}
+
+impl SourceFile {
+    /// Create a new [`SourceFile`] with the given `path`
+    pub fn new(path: &str) -> Self {
+        Self {
+            id: seahash::hash(path.as_bytes()) as i64,
+            path: path.into(),
+        }
+    }
 }
 
 /// A `CoverageSample` record is a single coverage measurement. There will be a
@@ -330,10 +332,19 @@ pub struct ContextAssoc {
 pub struct Context {
     /// Should be a hash of the context's `name` field.
     pub id: i64,
-    pub context_type: ContextType,
 
     /// Some sort of unique name for this context, such as a test case name.
     pub name: String,
+}
+
+impl Context {
+    /// Create a new [`Context`] with the given `name`
+    pub fn new(name: &str) -> Self {
+        Self {
+            id: seahash::hash(name.as_bytes()) as i64,
+            name: name.into(),
+        }
+    }
 }
 
 /// Details about a Codecov upload including its flags, the path it was uploaded

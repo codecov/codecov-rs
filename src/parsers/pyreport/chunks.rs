@@ -21,7 +21,6 @@ use super::{
     utils,
 };
 use crate::report::{
-    models::ContextType,
     pyreport::{types::*, CHUNKS_FILE_END_OF_CHUNK, CHUNKS_FILE_HEADER_TERMINATOR},
     Report, ReportBuilder,
 };
@@ -333,7 +332,7 @@ pub fn label<S: StrStream, R: Report, B: ReportBuilder<R>>(
                 .state
                 .db
                 .report_builder
-                .insert_context(ContextType::TestCase, &labels_index_key)
+                .insert_context(&labels_index_key)
                 .map_err(|e| ErrMode::from_external_error(buf, ErrorKind::Fail, e))?;
             buf.state.labels_index.insert(context.name, context.id);
             Ok(labels_index_key)
@@ -524,7 +523,7 @@ pub fn chunks_file_header<S: StrStream, R: Report, B: ReportBuilder<R>>(
             .state
             .db
             .report_builder
-            .insert_context(ContextType::TestCase, name)
+            .insert_context(name)
             .map_err(|e| ErrMode::from_external_error(buf, ErrorKind::Fail, e))?;
         buf.state.labels_index.insert(index.clone(), context.id);
     }
@@ -607,12 +606,9 @@ mod tests {
         report_builder
             .expect_multi_associate_context()
             .returning(|_| Ok(()));
-        report_builder.expect_insert_context().returning(|_, name| {
-            Ok(Context {
-                name: name.to_string(),
-                ..Default::default()
-            })
-        });
+        report_builder
+            .expect_insert_context()
+            .returning(|name| Ok(Context::new(name)));
     }
 
     #[test]
@@ -1293,12 +1289,8 @@ mod tests {
             .db
             .report_builder
             .expect_insert_context()
-            .with(eq(ContextType::TestCase), eq("not_already_inserted"))
-            .returning(|_, _| {
-                Ok(Context {
-                    ..Default::default()
-                })
-            })
+            .with(eq("not_already_inserted"))
+            .returning(|name| Ok(Context::new(name)))
             .times(1);
         buf.input = "\"not_already_inserted\"";
         assert_eq!(
@@ -1340,12 +1332,7 @@ mod tests {
             .db
             .report_builder
             .expect_insert_context()
-            .returning(|_, name| {
-                Ok(Context {
-                    name: name.to_string(),
-                    ..Default::default()
-                })
-            });
+            .returning(|name| Ok(Context::new(name)));
 
         let valid_test_cases = [
             (
@@ -1950,25 +1937,15 @@ mod tests {
             .db
             .report_builder
             .expect_insert_context()
-            .with(eq(ContextType::TestCase), eq("1".to_string()))
-            .returning(|_, name| {
-                Ok(Context {
-                    name: name.to_string(),
-                    ..Default::default()
-                })
-            });
+            .with(eq("1".to_string()))
+            .returning(|name| Ok(Context::new(name)));
 
         buf.state
             .db
             .report_builder
             .expect_insert_context()
-            .with(eq(ContextType::TestCase), eq("test_name".to_string()))
-            .returning(|_, name| {
-                Ok(Context {
-                    name: name.to_string(),
-                    ..Default::default()
-                })
-            });
+            .with(eq("test_name".to_string()))
+            .returning(|name| Ok(Context::new(name)));
 
         assert!(buf.state.labels_index.is_empty());
         let test_cases = [

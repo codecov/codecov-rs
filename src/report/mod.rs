@@ -51,14 +51,10 @@ pub trait Report {
 #[allow(clippy::needless_lifetimes)] // `automock` requires these
 pub trait ReportBuilder<R: Report> {
     /// Create a [`models::SourceFile`] record and return it.
-    fn insert_file(&mut self, path: String) -> Result<models::SourceFile>;
+    fn insert_file(&mut self, path: &str) -> Result<models::SourceFile>;
 
     /// Create a [`models::Context`] record and return it.
-    fn insert_context(
-        &mut self,
-        context_type: models::ContextType,
-        name: &str,
-    ) -> Result<models::Context>;
+    fn insert_context(&mut self, name: &str) -> Result<models::Context>;
 
     /// Create a [`models::CoverageSample`] record and return it. The passed-in
     /// model's `local_sample_id` field is ignored and overwritten with a value

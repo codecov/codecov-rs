@@ -9,8 +9,6 @@ select
   count(*) as count
 from
   context
-where
-  context.context_type = 'TestCase'
 ),
 files as (
 select

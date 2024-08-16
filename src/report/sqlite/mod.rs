@@ -6,10 +6,9 @@
  * - Some `ORDER BY` clauses are to make writing test cases simple and may
  *   not be necessary
  */
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::LazyLock};
 
 use include_dir::{include_dir, Dir};
-use lazy_static::lazy_static;
 use rusqlite::Connection;
 use rusqlite_migration::Migrations;
 
@@ -24,11 +23,8 @@ pub use report::*;
 pub use report_builder::*;
 
 static MIGRATIONS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/migrations");
-
-lazy_static! {
-    static ref MIGRATIONS: Migrations<'static> =
-        Migrations::from_directory(&MIGRATIONS_DIR).unwrap();
-}
+static MIGRATIONS: LazyLock<Migrations<'static>> =
+    LazyLock::new(|| Migrations::from_directory(&MIGRATIONS_DIR).unwrap());
 
 fn open_database(filename: &PathBuf) -> Result<Connection> {
     let mut conn = Connection::open(filename)?;
