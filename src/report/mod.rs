@@ -1,6 +1,3 @@
-#[cfg(test)]
-use mockall::automock;
-
 pub mod models;
 
 pub mod sqlite;
@@ -9,10 +6,12 @@ pub use sqlite::{SqliteReport, SqliteReportBuilder, SqliteReportBuilderTx};
 #[cfg(feature = "pyreport")]
 pub mod pyreport;
 
+#[cfg(test)]
+pub mod test;
+
 use crate::error::Result;
 
 /// An interface for coverage data.
-#[cfg_attr(test, automock)]
 pub trait Report {
     fn list_files(&self) -> Result<Vec<models::SourceFile>>;
     fn list_contexts(&self) -> Result<Vec<models::Context>>;
@@ -47,8 +46,6 @@ pub trait Report {
 }
 
 /// An interface for creating a new coverage report.
-#[cfg_attr(test, automock)]
-#[allow(clippy::needless_lifetimes)] // `automock` requires these
 pub trait ReportBuilder<R: Report> {
     /// Create a [`models::SourceFile`] record and return it.
     fn insert_file(&mut self, path: &str) -> Result<models::SourceFile>;
@@ -69,9 +66,9 @@ pub trait ReportBuilder<R: Report> {
     /// passed-in models' `local_sample_id` fields are ignored and overwritten
     /// with values that are unique among all `CoverageSample`s with the same
     /// `raw_upload_id`.
-    fn multi_insert_coverage_sample<'a>(
+    fn multi_insert_coverage_sample(
         &mut self,
-        samples: Vec<&'a mut models::CoverageSample>,
+        samples: Vec<&mut models::CoverageSample>,
     ) -> Result<()>;
 
     /// Create a [`models::BranchesData`] record and return it. The passed-in
@@ -86,9 +83,9 @@ pub trait ReportBuilder<R: Report> {
     /// passed-in models' `local_branch_id` fields are ignored and overwritten
     /// with values that are unique among all `BranchesData`s with the same
     /// `raw_upload_id`.
-    fn multi_insert_branches_data<'a>(
+    fn multi_insert_branches_data(
         &mut self,
-        branches: Vec<&'a mut models::BranchesData>,
+        branches: Vec<&mut models::BranchesData>,
     ) -> Result<()>;
 
     /// Create a [`models::MethodData`] record and return it. The passed-in
@@ -100,10 +97,7 @@ pub trait ReportBuilder<R: Report> {
     /// passed-in models' `local_method_id` fields are ignored and overwritten
     /// with values that are unique among all `MethodData`s with the same
     /// `raw_upload_id`.
-    fn multi_insert_method_data<'a>(
-        &mut self,
-        methods: Vec<&'a mut models::MethodData>,
-    ) -> Result<()>;
+    fn multi_insert_method_data(&mut self, methods: Vec<&mut models::MethodData>) -> Result<()>;
 
     /// Create a [`models::SpanData`] record and return it. The passed-in
     /// model's `local_span_id` field is ignored and overwritten with a value
@@ -114,7 +108,7 @@ pub trait ReportBuilder<R: Report> {
     /// passed-in models' `local_span_id` fields are ignored and overwritten
     /// with values that are unique among all `SpanData`s with the same
     /// `raw_upload_id`.
-    fn multi_insert_span_data<'a>(&mut self, spans: Vec<&'a mut models::SpanData>) -> Result<()>;
+    fn multi_insert_span_data(&mut self, spans: Vec<&mut models::SpanData>) -> Result<()>;
 
     /// Create a [`models::ContextAssoc`] record that associates a
     /// [`models::Context`] with another model. Returns the input to follow the
@@ -123,10 +117,7 @@ pub trait ReportBuilder<R: Report> {
 
     /// Create several [`models::ContextAssoc`] records that associate
     /// [`models::Context`]s with other models.
-    fn multi_associate_context<'a>(
-        &mut self,
-        assocs: Vec<&'a mut models::ContextAssoc>,
-    ) -> Result<()>;
+    fn multi_associate_context(&mut self, assocs: Vec<&mut models::ContextAssoc>) -> Result<()>;
 
     /// Create a [`models::RawUpload`] record and return it.
     fn insert_raw_upload(&mut self, upload_details: models::RawUpload)

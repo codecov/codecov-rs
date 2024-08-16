@@ -23,7 +23,6 @@ winnow = "0.5.34"
 
 [dev-dependencies]
 divan = "0.1.14"
-mockall = { version = "0.13.0", features = ["nightly"] }
 tempfile = "3.9.0"
 
 [[bench]]

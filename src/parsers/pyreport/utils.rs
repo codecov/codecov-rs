@@ -312,14 +312,14 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::report::{MockReport, MockReportBuilder};
+    use crate::report::test::{TestReport, TestReportBuilder};
 
     struct Ctx {
-        parse_ctx: ParseCtx<MockReport, MockReportBuilder<MockReport>>,
+        parse_ctx: ParseCtx<TestReport, TestReportBuilder>,
     }
 
     fn setup() -> Ctx {
-        let report_builder = MockReportBuilder::new();
+        let report_builder = TestReportBuilder::default();
         let report_json_files = HashMap::from([(0, 123), (1, 456), (2, 789)]);
         let report_json_sessions = HashMap::from([(0, 123), (1, 456), (2, 789)]);
 
@@ -1187,182 +1187,140 @@ mod tests {
             },
         ];
 
+        // Now we actually run the function
+        save_report_lines(&report_lines, &mut test_ctx.parse_ctx).unwrap();
+        let report = test_ctx.parse_ctx.db.report_builder.build().unwrap();
+
         // Now we need to set up our mock expectations. There are a lot of them.
         // First thing that gets inserted is CoverageSample. We expect 4 of them,
         // one for each LineSession. Our first ReportLine has 2 sessions, and the
         // other two have 1 session each, so 4 total.
-        let expected_cov_samples = vec![
-            models::CoverageSample {
-                raw_upload_id: 123,
-                source_file_id: 123,
-                line_no: 1,
-                coverage_type: models::CoverageType::Line,
-                hits: Some(10),
-                ..Default::default()
-            },
-            models::CoverageSample {
-                raw_upload_id: 456,
-                source_file_id: 123,
-                line_no: 1,
-                coverage_type: models::CoverageType::Line,
-                hits: Some(10),
-                ..Default::default()
-            },
-            models::CoverageSample {
-                raw_upload_id: 123,
-                source_file_id: 123,
-                line_no: 2,
-                coverage_type: models::CoverageType::Branch,
-                hit_branches: Some(2),
-                total_branches: Some(4),
-                ..Default::default()
-            },
-            models::CoverageSample {
-                raw_upload_id: 789,
-                source_file_id: 123,
-                line_no: 3,
-                coverage_type: models::CoverageType::Method,
-                hits: Some(3),
-                ..Default::default()
-            },
-        ];
-        test_ctx
-            .parse_ctx
-            .db
-            .report_builder
-            .expect_multi_insert_coverage_sample()
-            .withf(move |samples| {
-                // TODO: Can I skip this silly step
-                let mut expected_samples = expected_cov_samples.clone();
-                let ref_vec: Vec<_> = expected_samples.iter_mut().collect();
-                *samples == ref_vec
-            })
-            .returning(|mut samples| {
-                // Assign everything an ID so we can make sure the right assocs are there
-                for (i, sample) in samples.iter_mut().enumerate() {
-                    sample.local_sample_id = i as i64;
-                }
-                Ok(())
-            });
+        assert_eq!(
+            report.samples,
+            &[
+                models::CoverageSample {
+                    local_sample_id: 0,
+                    raw_upload_id: 123,
+                    source_file_id: 123,
+                    line_no: 1,
+                    coverage_type: models::CoverageType::Line,
+                    hits: Some(10),
+                    ..Default::default()
+                },
+                models::CoverageSample {
+                    local_sample_id: 1,
+                    raw_upload_id: 456,
+                    source_file_id: 123,
+                    line_no: 1,
+                    coverage_type: models::CoverageType::Line,
+                    hits: Some(10),
+                    ..Default::default()
+                },
+                models::CoverageSample {
+                    local_sample_id: 2,
+                    raw_upload_id: 123,
+                    source_file_id: 123,
+                    line_no: 2,
+                    coverage_type: models::CoverageType::Branch,
+                    hit_branches: Some(2),
+                    total_branches: Some(4),
+                    ..Default::default()
+                },
+                models::CoverageSample {
+                    local_sample_id: 3,
+                    raw_upload_id: 789,
+                    source_file_id: 123,
+                    line_no: 3,
+                    coverage_type: models::CoverageType::Method,
+                    hits: Some(3),
+                    ..Default::default()
+                },
+            ]
+        );
 
         // Next thing to go is ContextAssoc. Only 3 LineSessions have a corresponding
         // CoverageDatapoint, and each CoverageDatapoint only has one label.
         // "test_label" is context_id==50 and "test_label_2" is context_id==51
-        let expected_assocs = vec![
-            models::ContextAssoc {
-                raw_upload_id: 123,
-                local_sample_id: Some(0),
-                context_id: 50,
-                ..Default::default()
-            },
-            models::ContextAssoc {
-                raw_upload_id: 123,
-                local_sample_id: Some(2),
-                context_id: 50,
-                ..Default::default()
-            },
-            models::ContextAssoc {
-                raw_upload_id: 789,
-                local_sample_id: Some(3),
-                context_id: 51,
-                ..Default::default()
-            },
-        ];
-        test_ctx
-            .parse_ctx
-            .db
-            .report_builder
-            .expect_multi_associate_context()
-            .withf(move |assocs| {
-                let mut assocs_clone = expected_assocs.clone();
-                let ref_vec: Vec<_> = assocs_clone.iter_mut().collect();
-                *assocs == ref_vec
-            })
-            .returning(|_| Ok(()));
+        assert_eq!(
+            report.assocs,
+            &[
+                models::ContextAssoc {
+                    raw_upload_id: 123,
+                    local_sample_id: Some(0),
+                    context_id: 50,
+                    ..Default::default()
+                },
+                models::ContextAssoc {
+                    raw_upload_id: 123,
+                    local_sample_id: Some(2),
+                    context_id: 50,
+                    ..Default::default()
+                },
+                models::ContextAssoc {
+                    raw_upload_id: 789,
+                    local_sample_id: Some(3),
+                    context_id: 51,
+                    ..Default::default()
+                },
+            ]
+        );
 
         // Then we do BranchesData. Our branch ReportLine has a single LineSession, and
         // that LineSession has a `branches` field with two missing branches in
         // it.
-        let expected_branches = vec![
-            models::BranchesData {
-                raw_upload_id: 123,
-                source_file_id: 123,
-                local_sample_id: 2,
-                hits: 0,
-                branch: "0:0".to_string(),
-                branch_format: models::BranchFormat::BlockAndBranch,
-                ..Default::default()
-            },
-            models::BranchesData {
-                raw_upload_id: 123,
-                source_file_id: 123,
-                local_sample_id: 2,
-                hits: 0,
-                branch: "0:1".to_string(),
-                branch_format: models::BranchFormat::BlockAndBranch,
-                ..Default::default()
-            },
-        ];
-        test_ctx
-            .parse_ctx
-            .db
-            .report_builder
-            .expect_multi_insert_branches_data()
-            .withf(move |branches| {
-                let mut branches_clone = expected_branches.clone();
-                let ref_vec: Vec<_> = branches_clone.iter_mut().collect();
-                *branches == ref_vec
-            })
-            .returning(|_| Ok(()));
+        assert_eq!(
+            report.branches,
+            &[
+                models::BranchesData {
+                    raw_upload_id: 123,
+                    source_file_id: 123,
+                    local_sample_id: 2,
+                    hits: 0,
+                    branch: "0:0".to_string(),
+                    branch_format: models::BranchFormat::BlockAndBranch,
+                    ..Default::default()
+                },
+                models::BranchesData {
+                    raw_upload_id: 123,
+                    source_file_id: 123,
+                    local_sample_id: 2,
+                    hits: 0,
+                    branch: "0:1".to_string(),
+                    branch_format: models::BranchFormat::BlockAndBranch,
+                    ..Default::default()
+                },
+            ]
+        );
 
         // Then we do MethodData. Our method ReportLine has a single session, and that
         // single session has its complexity field filled in.
-        let expected_methods = vec![models::MethodData {
-            raw_upload_id: 789,
-            source_file_id: 123,
-            local_sample_id: 3,
-            line_no: Some(3),
-            total_complexity: Some(4),
-            ..Default::default()
-        }];
-        test_ctx
-            .parse_ctx
-            .db
-            .report_builder
-            .expect_multi_insert_method_data()
-            .withf(move |methods| {
-                let mut methods_clone = expected_methods.clone();
-                let ref_vec: Vec<_> = methods_clone.iter_mut().collect();
-                *methods == ref_vec
-            })
-            .returning(|_| Ok(()));
+        assert_eq!(
+            report.methods,
+            &[models::MethodData {
+                raw_upload_id: 789,
+                source_file_id: 123,
+                local_sample_id: 3,
+                line_no: Some(3),
+                total_complexity: Some(4),
+                ..Default::default()
+            }]
+        );
 
         // Then we do SpanData. Our first ReportLine has two sessions, one without any
         // partials and one with a single partial. So, we need to create a
         // single SpanData for that partial.
-        let expected_spans = vec![models::SpanData {
-            raw_upload_id: 456,
-            source_file_id: 123,
-            local_sample_id: Some(1),
-            hits: 3,
-            start_line: Some(1),
-            end_line: Some(1),
-            end_col: Some(10),
-            ..Default::default()
-        }];
-        test_ctx
-            .parse_ctx
-            .db
-            .report_builder
-            .expect_multi_insert_span_data()
-            .withf(move |spans| {
-                let mut spans_clone = expected_spans.clone();
-                let ref_vec: Vec<_> = spans_clone.iter_mut().collect();
-                *spans == ref_vec
-            })
-            .returning(|_| Ok(()));
-
-        // Now we actually run the function
-        save_report_lines(&report_lines, &mut test_ctx.parse_ctx).unwrap();
+        assert_eq!(
+            report.spans,
+            &[models::SpanData {
+                raw_upload_id: 456,
+                source_file_id: 123,
+                local_sample_id: Some(1),
+                hits: 3,
+                start_line: Some(1),
+                end_line: Some(1),
+                end_col: Some(10),
+                ..Default::default()
+            }]
+        );
     }
 }
