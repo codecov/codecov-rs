@@ -32,7 +32,7 @@ pub type ReportOutputStream<S, R, B> = Stateful<S, ReportBuilderCtx<R, B>>;
 /// "filename.rs": [
 ///     chunks_index: int,
 ///     file_totals: ReportTotals,
-///     session_totals: SessionTotalsArray,
+///     session_totals: null, // (formerly SessionTotalsArray, but ignored now)
 ///     diff_totals: ReportTotals (probably),
 /// ]
 /// ```
@@ -41,9 +41,12 @@ pub type ReportOutputStream<S, R, B> = Stateful<S, ReportBuilderCtx<R, B>>;
 /// - [`ReportTotals`](https://github.com/codecov/shared/blob/e97a9f422a6e224b315d6dc3821f9f5ebe9b2ddd/shared/reports/types.py#L30-L45)
 /// - [`SessionTotalsArray`](https://github.com/codecov/shared/blob/e97a9f422a6e224b315d6dc3821f9f5ebe9b2ddd/shared/reports/types.py#L263-L272)
 ///
-/// `SessionTotalsArray` will normally be a dict mapping a session ID to a
-/// `SessionTotals` (which is just a type alias for `ReportTotals`) but there is
-/// a legacy format.
+/// `SessionTotalsArray` no longer exists, but older reports may still have it.
+/// It's a dict mapping a session ID to a `SessionTotals` (which is just a type
+/// alias for `ReportTotals` and a "meta" key with extra information including
+/// how many sessions there are in the map, and old reports may still have it.
+/// There's an even older format which is just a flat list. In any case, we
+/// ignore the field now.
 ///
 /// Input example:
 /// ```notrust
@@ -64,7 +67,7 @@ pub type ReportOutputStream<S, R, B> = Stateful<S, ReportBuilderCtx<R, B>>;
 ///        0,           # > complexity_total
 ///        0            # > diff
 ///      ],
-///      {              # session totals
+///      {              # session totals (usually null nowadays)
 ///        "0": [       # > key: session id
 ///          0,         # > files
 ///          45,        # > lines
