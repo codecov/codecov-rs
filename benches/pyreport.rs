@@ -29,10 +29,19 @@ fn simple_report() {
 #[divan::bench(sample_count = 10)]
 fn complex_report(bencher: Bencher) {
     // this is a ~11M `report_json`
-    let path = "./reports/worker-c71ddfd4cb1753c7a540e5248c2beaa079fc3341-report_json.json";
-    if let Ok(report) = std::fs::read_to_string(path) {
-        bencher.bench(|| run_parsing(&report));
+    let path =
+        "./fixtures/pyreport/large/worker-c71ddfd4cb1753c7a540e5248c2beaa079fc3341-report_json.json";
+    let Ok(report) = std::fs::read_to_string(path) else {
+        println!("Failed to read test report");
+        return;
+    };
+
+    if report.starts_with("version https://git-lfs.github.com/spec/v1\n") {
+        println!("Sample report has not been pulled from Git LFS");
+        return;
     }
+
+    bencher.bench(|| run_parsing(&report));
 }
 
 fn run_parsing(input: &str) {
@@ -114,11 +123,8 @@ impl Report for TestReport {
 }
 
 impl ReportBuilder<TestReport> for TestReport {
-    fn insert_file(&mut self, path: String) -> Result<models::SourceFile> {
-        let file = models::SourceFile {
-            id: seahash::hash(path.as_bytes()) as i64,
-            path,
-        };
+    fn insert_file(&mut self, path: &str) -> Result<models::SourceFile> {
+        let file = models::SourceFile::new(path);
         self.files.push(file.clone());
         Ok(file)
     }
@@ -132,11 +138,7 @@ impl ReportBuilder<TestReport> for TestReport {
         Ok(upload_details)
     }
 
-    fn insert_context(
-        &mut self,
-        _context_type: models::ContextType,
-        _name: &str,
-    ) -> Result<models::Context> {
+    fn insert_context(&mut self, _name: &str) -> Result<models::Context> {
         todo!()
     }
 

@@ -40,9 +40,7 @@ impl Report for SqliteReport {
 
     // TODO: implement for real, just using for integration tests
     fn list_contexts(&self) -> Result<Vec<models::Context>> {
-        let mut stmt = self
-            .conn
-            .prepare_cached("SELECT id, context_type, name FROM context")?;
+        let mut stmt = self.conn.prepare_cached("SELECT id, name FROM context")?;
         let contexts = stmt
             .query_map([], |row| row.try_into())?
             .collect::<rusqlite::Result<Vec<models::Context>>>()?;
@@ -106,7 +104,7 @@ impl Report for SqliteReport {
     ) -> Result<Vec<models::Context>> {
         let mut stmt = self
             .conn
-            .prepare_cached("SELECT context.id, context.context_type, context.name FROM context INNER JOIN context_assoc ON context.id = context_assoc.context_id WHERE context_assoc.local_sample_id = ?1")?;
+            .prepare_cached("SELECT context.id, context.name FROM context INNER JOIN context_assoc ON context.id = context_assoc.context_id WHERE context_assoc.local_sample_id = ?1")?;
         let contexts = stmt
             .query_map([sample.local_sample_id], |row| row.try_into())?
             .collect::<rusqlite::Result<Vec<models::Context>>>()?;
@@ -217,18 +215,14 @@ mod tests {
         let db_file_right = ctx.temp_dir.path().join("right.sqlite");
 
         let mut left_report_builder = SqliteReportBuilder::new_with_seed(db_file_left, 5).unwrap();
-        let file_1 = left_report_builder
-            .insert_file("src/report.rs".to_string())
-            .unwrap();
+        let file_1 = left_report_builder.insert_file("src/report.rs").unwrap();
         let file_2 = left_report_builder
-            .insert_file("src/report/models.rs".to_string())
+            .insert_file("src/report/models.rs")
             .unwrap();
         let upload_1 = left_report_builder
             .insert_raw_upload(Default::default())
             .unwrap();
-        let test_case_1 = left_report_builder
-            .insert_context(models::ContextType::TestCase, "test case 1")
-            .unwrap();
+        let test_case_1 = left_report_builder.insert_context("test case 1").unwrap();
         let line_1 = left_report_builder
             .insert_coverage_sample(models::CoverageSample {
                 source_file_id: file_1.id,
@@ -271,17 +265,15 @@ mod tests {
         let mut right_report_builder =
             SqliteReportBuilder::new_with_seed(db_file_right, 10).unwrap();
         let file_2 = right_report_builder
-            .insert_file("src/report/models.rs".to_string())
+            .insert_file("src/report/models.rs")
             .unwrap();
         let file_3 = right_report_builder
-            .insert_file("src/report/schema.rs".to_string())
+            .insert_file("src/report/schema.rs")
             .unwrap();
         let upload_2 = right_report_builder
             .insert_raw_upload(Default::default())
             .unwrap();
-        let test_case_2 = right_report_builder
-            .insert_context(models::ContextType::TestCase, "test case 2")
-            .unwrap();
+        let test_case_2 = right_report_builder.insert_context("test case 2").unwrap();
         let line_4 = right_report_builder
             .insert_coverage_sample(models::CoverageSample {
                 raw_upload_id: upload_2.id,
@@ -378,18 +370,12 @@ mod tests {
         assert!(!db_file.exists());
         let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
 
-        let file_1 = report_builder
-            .insert_file("src/report.rs".to_string())
-            .unwrap();
-        let file_2 = report_builder
-            .insert_file("src/report/models.rs".to_string())
-            .unwrap();
+        let file_1 = report_builder.insert_file("src/report.rs").unwrap();
+        let file_2 = report_builder.insert_file("src/report/models.rs").unwrap();
         let upload_1 = report_builder
             .insert_raw_upload(Default::default())
             .unwrap();
-        let test_case_1 = report_builder
-            .insert_context(models::ContextType::TestCase, "test_totals")
-            .unwrap();
+        let test_case_1 = report_builder.insert_context("test_totals").unwrap();
         let line_1 = report_builder
             .insert_coverage_sample(models::CoverageSample {
                 raw_upload_id: upload_1.id,

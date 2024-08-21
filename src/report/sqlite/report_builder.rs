@@ -91,16 +91,12 @@ impl SqliteReportBuilder {
 }
 
 impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
-    fn insert_file(&mut self, path: String) -> Result<models::SourceFile> {
+    fn insert_file(&mut self, path: &str) -> Result<models::SourceFile> {
         self.transaction()?.insert_file(path)
     }
 
-    fn insert_context(
-        &mut self,
-        context_type: models::ContextType,
-        name: &str,
-    ) -> Result<models::Context> {
-        self.transaction()?.insert_context(context_type, name)
+    fn insert_context(&mut self, name: &str) -> Result<models::Context> {
+        self.transaction()?.insert_context(name)
     }
 
     fn insert_coverage_sample(
@@ -175,8 +171,8 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
     /// let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
     ///
     /// let mut tx = report_builder.transaction().unwrap();
-    /// let _ = tx.insert_file("foo.rs".to_string());
-    /// let _ = tx.insert_file("bar.rs".to_string());
+    /// let _ = tx.insert_file("foo.rs");
+    /// let _ = tx.insert_file("bar.rs");
     ///
     /// // ERROR: cannot move out of `report_builder` because it is borrowed
     /// let report = report_builder.build().unwrap();
@@ -195,8 +191,8 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
     /// // `tx` will go out of scope at the end of this block
     /// {
     ///     let mut tx = report_builder.transaction().unwrap();
-    ///     let _ = tx.insert_file("foo.rs".to_string());
-    ///     let _ = tx.insert_file("bar.rs".to_string());
+    ///     let _ = tx.insert_file("foo.rs");
+    ///     let _ = tx.insert_file("bar.rs");
     /// }
     ///
     /// // Works fine now
@@ -214,8 +210,8 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
     /// let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
     ///
     /// let mut tx = report_builder.transaction().unwrap();
-    /// let _ = tx.insert_file("foo.rs".to_string());
-    /// let _ = tx.insert_file("bar.rs".to_string());
+    /// let _ = tx.insert_file("foo.rs");
+    /// let _ = tx.insert_file("bar.rs");
     /// let _ = tx.rollback();
     ///
     /// // Works fine now
@@ -230,25 +226,14 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
 }
 
 impl<'a> ReportBuilder<SqliteReport> for SqliteReportBuilderTx<'a> {
-    fn insert_file(&mut self, path: String) -> Result<models::SourceFile> {
-        let model = models::SourceFile {
-            id: seahash::hash(path.as_bytes()) as i64,
-            path,
-        };
+    fn insert_file(&mut self, path: &str) -> Result<models::SourceFile> {
+        let model = models::SourceFile::new(path);
         model.insert(&self.conn)?;
         Ok(model)
     }
 
-    fn insert_context(
-        &mut self,
-        context_type: models::ContextType,
-        name: &str,
-    ) -> Result<models::Context> {
-        let model = models::Context {
-            id: seahash::hash(name.as_bytes()) as i64,
-            context_type,
-            name: name.to_string(),
-        };
+    fn insert_context(&mut self, name: &str) -> Result<models::Context> {
+        let model = models::Context::new(name);
         model.insert(&self.conn)?;
         Ok(model)
     }
@@ -392,10 +377,6 @@ mod tests {
         }
     }
 
-    fn hash_id(key: &str) -> i64 {
-        seahash::hash(key.as_bytes()) as i64
-    }
-
     #[test]
     fn test_new_report_builder_runs_migrations() {
         let ctx = setup();
@@ -415,16 +396,11 @@ mod tests {
         let db_file = ctx.temp_dir.path().join("db.sqlite");
         let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
 
-        let expected_file = models::SourceFile {
-            id: hash_id("src/report.rs"),
-            path: "src/report.rs".to_string(),
-        };
-        let actual_file = report_builder
-            .insert_file(expected_file.path.clone())
-            .unwrap();
+        let expected_file = models::SourceFile::new("src/report.rs");
+        let actual_file = report_builder.insert_file(&expected_file.path).unwrap();
         assert_eq!(actual_file, expected_file);
 
-        let duplicate_result = report_builder.insert_file(expected_file.path.clone());
+        let duplicate_result = report_builder.insert_file(&expected_file.path);
         assert_eq!(
             duplicate_result.unwrap_err().to_string(),
             "sqlite failure: 'UNIQUE constraint failed: source_file.id'"
@@ -437,18 +413,11 @@ mod tests {
         let db_file = ctx.temp_dir.path().join("db.sqlite");
         let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
 
-        let expected_context = models::Context {
-            id: hash_id("foo"),
-            context_type: models::ContextType::TestCase,
-            name: "foo".to_string(),
-        };
-        let actual_context = report_builder
-            .insert_context(expected_context.context_type, &expected_context.name)
-            .unwrap();
+        let expected_context = models::Context::new("foo");
+        let actual_context = report_builder.insert_context("foo").unwrap();
         assert_eq!(actual_context, expected_context);
 
-        let duplicate_result =
-            report_builder.insert_context(expected_context.context_type, &expected_context.name);
+        let duplicate_result = report_builder.insert_context("foo");
         assert_eq!(
             duplicate_result.unwrap_err().to_string(),
             "sqlite failure: 'UNIQUE constraint failed: context.id'"
@@ -461,9 +430,7 @@ mod tests {
         let db_file = ctx.temp_dir.path().join("db.sqlite");
         let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
 
-        let file = report_builder
-            .insert_file("src/report.rs".to_string())
-            .unwrap();
+        let file = report_builder.insert_file("src/report.rs").unwrap();
         let raw_upload = report_builder
             .insert_raw_upload(Default::default())
             .unwrap();
@@ -508,9 +475,7 @@ mod tests {
         let db_file = ctx.temp_dir.path().join("db.sqlite");
         let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
 
-        let file = report_builder
-            .insert_file("src/report.rs".to_string())
-            .unwrap();
+        let file = report_builder.insert_file("src/report.rs").unwrap();
         let raw_upload = report_builder
             .insert_raw_upload(Default::default())
             .unwrap();
@@ -572,9 +537,7 @@ mod tests {
         let db_file = ctx.temp_dir.path().join("db.sqlite");
         let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
 
-        let file = report_builder
-            .insert_file("src/report.rs".to_string())
-            .unwrap();
+        let file = report_builder.insert_file("src/report.rs").unwrap();
         let raw_upload = report_builder
             .insert_raw_upload(Default::default())
             .unwrap();
@@ -630,9 +593,7 @@ mod tests {
         let db_file = ctx.temp_dir.path().join("db.sqlite");
         let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
 
-        let file = report_builder
-            .insert_file("src/report.rs".to_string())
-            .unwrap();
+        let file = report_builder.insert_file("src/report.rs").unwrap();
         let raw_upload = report_builder
             .insert_raw_upload(Default::default())
             .unwrap();
@@ -707,9 +668,7 @@ mod tests {
         let db_file = ctx.temp_dir.path().join("db.sqlite");
         let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
 
-        let file = report_builder
-            .insert_file("src/report.rs".to_string())
-            .unwrap();
+        let file = report_builder.insert_file("src/report.rs").unwrap();
 
         let raw_upload = report_builder
             .insert_raw_upload(Default::default())
@@ -769,9 +728,7 @@ mod tests {
         let db_file = ctx.temp_dir.path().join("db.sqlite");
         let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
 
-        let file = report_builder
-            .insert_file("src/report.rs".to_string())
-            .unwrap();
+        let file = report_builder.insert_file("src/report.rs").unwrap();
         let raw_upload = report_builder
             .insert_raw_upload(Default::default())
             .unwrap();
@@ -839,9 +796,7 @@ mod tests {
         let db_file = ctx.temp_dir.path().join("db.sqlite");
         let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
 
-        let file = report_builder
-            .insert_file("src/report.rs".to_string())
-            .unwrap();
+        let file = report_builder.insert_file("src/report.rs").unwrap();
         let raw_upload = report_builder
             .insert_raw_upload(Default::default())
             .unwrap();
@@ -893,9 +848,7 @@ mod tests {
         let db_file = ctx.temp_dir.path().join("db.sqlite");
         let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
 
-        let file = report_builder
-            .insert_file("src/report.rs".to_string())
-            .unwrap();
+        let file = report_builder.insert_file("src/report.rs").unwrap();
         let raw_upload = report_builder
             .insert_raw_upload(Default::default())
             .unwrap();
@@ -970,9 +923,7 @@ mod tests {
         let db_file = ctx.temp_dir.path().join("db.sqlite");
         let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
 
-        let file = report_builder
-            .insert_file("src/report.rs".to_string())
-            .unwrap();
+        let file = report_builder.insert_file("src/report.rs").unwrap();
 
         let raw_upload = report_builder
             .insert_raw_upload(Default::default())
@@ -1004,9 +955,7 @@ mod tests {
             })
             .unwrap();
 
-        let context = report_builder
-            .insert_context(models::ContextType::TestCase, "test_case")
-            .unwrap();
+        let context = report_builder.insert_context("test_case").unwrap();
 
         let expected_assoc = models::ContextAssoc {
             context_id: context.id,
@@ -1037,9 +986,7 @@ mod tests {
         let db_file = ctx.temp_dir.path().join("db.sqlite");
         let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
 
-        let file = report_builder
-            .insert_file("src/report.rs".to_string())
-            .unwrap();
+        let file = report_builder.insert_file("src/report.rs").unwrap();
         let raw_upload = report_builder
             .insert_raw_upload(Default::default())
             .unwrap();
@@ -1052,18 +999,10 @@ mod tests {
             .unwrap();
 
         let contexts = vec![
-            report_builder
-                .insert_context(models::ContextType::TestCase, "test case 1")
-                .unwrap(),
-            report_builder
-                .insert_context(models::ContextType::TestCase, "test case 2")
-                .unwrap(),
-            report_builder
-                .insert_context(models::ContextType::TestCase, "test case 3")
-                .unwrap(),
-            report_builder
-                .insert_context(models::ContextType::TestCase, "test case 4")
-                .unwrap(),
+            report_builder.insert_context("test case 1").unwrap(),
+            report_builder.insert_context("test case 2").unwrap(),
+            report_builder.insert_context("test case 3").unwrap(),
+            report_builder.insert_context("test case 4").unwrap(),
         ];
 
         let mut assocs: Vec<_> = contexts
@@ -1144,9 +1083,9 @@ mod tests {
         let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
 
         let mut tx = report_builder.transaction().unwrap();
-        let _ = tx.insert_file("foo.rs".to_string());
-        let _ = tx.insert_file("bar.rs".to_string());
-        let _ = tx.rollback();
+        tx.insert_file("foo.rs").unwrap();
+        tx.insert_file("bar.rs").unwrap();
+        tx.rollback().unwrap();
 
         let report = report_builder.build().unwrap();
         let files = report.list_files().unwrap();

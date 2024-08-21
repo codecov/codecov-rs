@@ -39,7 +39,6 @@ CREATE TABLE context (
     -- all come up with the same ID.
     id INTEGER PRIMARY KEY,
 
-    context_type VARCHAR NOT NULL,
     name VARCHAR NOT NULL
 );
 

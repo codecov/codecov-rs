@@ -10,7 +10,7 @@
  * model.
  */
 
-use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
+use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 
 use super::super::models::*;
 use crate::{error::Result, parsers::json::JsonVal};
@@ -189,21 +189,6 @@ impl FromSql for BranchFormat {
             _ => panic!("Uh oh"),
         };
         Ok(variant)
-    }
-}
-
-impl ToSql for ContextType {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        Ok(self.to_string().into())
-    }
-}
-
-impl FromSql for ContextType {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        value
-            .as_str()?
-            .parse()
-            .map_err(|e| FromSqlError::Other(Box::new(e)))
     }
 }
 
@@ -447,7 +432,6 @@ impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for Context {
     fn try_from(row: &'a ::rusqlite::Row) -> Result<Self, Self::Error> {
         Ok(Self {
             id: row.get(row.as_ref().column_index("id")?)?,
-            context_type: row.get(row.as_ref().column_index("context_type")?)?,
             name: row.get(row.as_ref().column_index("name")?)?,
         })
     }
@@ -455,12 +439,11 @@ impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for Context {
 
 impl Insertable for Context {
     const TABLE_NAME: &'static str = "context";
-    const FIELDS: &'static [&'static str] = &["id", "context_type", "name"];
+    const FIELDS: &'static [&'static str] = &["id", "name"];
 
     fn extend_params<'a>(&'a self, params: &mut Vec<&'a dyn rusqlite::ToSql>) {
         params.extend(&[
             &self.id as &dyn rusqlite::ToSql,
-            &self.context_type as &dyn rusqlite::ToSql,
             &self.name as &dyn rusqlite::ToSql,
         ])
     }
@@ -689,7 +672,6 @@ mod tests {
 
         let model = Context {
             id: 0,
-            context_type: ContextType::TestCase,
             name: "test_upload".to_string(),
         };
 
@@ -715,9 +697,7 @@ mod tests {
         let raw_upload = report_builder
             .insert_raw_upload(Default::default())
             .unwrap();
-        let context = report_builder
-            .insert_context(ContextType::TestCase, "foo")
-            .unwrap();
+        let context = report_builder.insert_context("foo").unwrap();
 
         let report = report_builder.build().unwrap();
 
@@ -755,7 +735,7 @@ mod tests {
         let db_file = ctx.temp_dir.path().join("db.sqlite");
         let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
 
-        let source_file = report_builder.insert_file("foo.rs".to_string()).unwrap();
+        let source_file = report_builder.insert_file("foo.rs").unwrap();
         let raw_upload = report_builder
             .insert_raw_upload(Default::default())
             .unwrap();
@@ -788,7 +768,7 @@ mod tests {
         let db_file = ctx.temp_dir.path().join("db.sqlite");
         let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
 
-        let source_file = report_builder.insert_file("path".to_string()).unwrap();
+        let source_file = report_builder.insert_file("path").unwrap();
         let raw_upload = report_builder
             .insert_raw_upload(Default::default())
             .unwrap();
@@ -838,7 +818,7 @@ mod tests {
         let db_file = ctx.temp_dir.path().join("db.sqlite");
         let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
 
-        let source_file = report_builder.insert_file("foo.rs".to_string()).unwrap();
+        let source_file = report_builder.insert_file("foo.rs").unwrap();
         let raw_upload = report_builder
             .insert_raw_upload(Default::default())
             .unwrap();
@@ -885,7 +865,7 @@ mod tests {
         let db_file = ctx.temp_dir.path().join("db.sqlite");
         let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
 
-        let source_file = report_builder.insert_file("foo.rs".to_string()).unwrap();
+        let source_file = report_builder.insert_file("foo.rs").unwrap();
         let raw_upload = report_builder
             .insert_raw_upload(Default::default())
             .unwrap();

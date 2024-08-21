@@ -21,7 +21,6 @@ use super::{
     utils,
 };
 use crate::report::{
-    models::ContextType,
     pyreport::{types::*, CHUNKS_FILE_END_OF_CHUNK, CHUNKS_FILE_HEADER_TERMINATOR},
     Report, ReportBuilder,
 };
@@ -333,7 +332,7 @@ pub fn label<S: StrStream, R: Report, B: ReportBuilder<R>>(
                 .state
                 .db
                 .report_builder
-                .insert_context(ContextType::TestCase, &labels_index_key)
+                .insert_context(&labels_index_key)
                 .map_err(|e| ErrMode::from_external_error(buf, ErrorKind::Fail, e))?;
             buf.state.labels_index.insert(context.name, context.id);
             Ok(labels_index_key)
@@ -524,7 +523,7 @@ pub fn chunks_file_header<S: StrStream, R: Report, B: ReportBuilder<R>>(
             .state
             .db
             .report_builder
-            .insert_context(ContextType::TestCase, name)
+            .insert_context(name)
             .map_err(|e| ErrMode::from_external_error(buf, ErrorKind::Fail, e))?;
         buf.state.labels_index.insert(index.clone(), context.id);
     }
@@ -553,20 +552,22 @@ where
 
 #[cfg(test)]
 mod tests {
-    use mockall::predicate::*;
     use winnow::error::AddContext;
 
     use super::*;
-    use crate::report::{models::*, MockReport, MockReportBuilder};
+    use crate::report::{
+        models::*,
+        test::{TestReport, TestReportBuilder},
+    };
 
-    type TestStream<'a> = ReportOutputStream<&'a str, MockReport, MockReportBuilder<MockReport>>;
+    type TestStream<'a> = ReportOutputStream<&'a str, TestReport, TestReportBuilder>;
 
     struct Ctx {
-        parse_ctx: ParseCtx<MockReport, MockReportBuilder<MockReport>>,
+        parse_ctx: ParseCtx<TestReport, TestReportBuilder>,
     }
 
     fn setup() -> Ctx {
-        let report_builder = MockReportBuilder::new();
+        let report_builder = TestReportBuilder::default();
         let report_json_files = HashMap::from([(0, 0), (1, 1), (2, 2)]);
         let report_json_sessions = HashMap::from([(0, 0), (1, 1), (2, 2)]);
 
@@ -589,30 +590,6 @@ mod tests {
 
     fn cut_error_with_contexts(contexts: Vec<StrContext>) -> ErrMode<ContextError> {
         ErrMode::Cut(create_context_error(contexts))
-    }
-
-    fn stub_report_builder(report_builder: &mut MockReportBuilder<MockReport>) {
-        report_builder
-            .expect_multi_insert_coverage_sample()
-            .returning(|_| Ok(()));
-        report_builder
-            .expect_multi_insert_branches_data()
-            .returning(|_| Ok(()));
-        report_builder
-            .expect_multi_insert_method_data()
-            .returning(|_| Ok(()));
-        report_builder
-            .expect_multi_insert_span_data()
-            .returning(|_| Ok(()));
-        report_builder
-            .expect_multi_associate_context()
-            .returning(|_| Ok(()));
-        report_builder.expect_insert_context().returning(|_, name| {
-            Ok(Context {
-                name: name.to_string(),
-                ..Default::default()
-            })
-        });
     }
 
     #[test]
@@ -1277,7 +1254,6 @@ mod tests {
 
         // Parsing a label that is already in `labels_index` should just return it
         buf.input = "\"already_inserted\"";
-        buf.state.db.report_builder.expect_insert_context().times(0);
         assert_eq!(
             label.parse_next(&mut buf),
             Ok("already_inserted".to_string())
@@ -1285,25 +1261,17 @@ mod tests {
 
         // If we parse a number like `1`, we should look for `"1"` in the labels index.
         buf.input = "1";
-        buf.state.db.report_builder.expect_insert_context().times(0);
         assert_eq!(label.parse_next(&mut buf), Ok("1".to_string()));
 
         // Parsing a label that is not already in `labels_index` should insert it
-        buf.state
-            .db
-            .report_builder
-            .expect_insert_context()
-            .with(eq(ContextType::TestCase), eq("not_already_inserted"))
-            .returning(|_, _| {
-                Ok(Context {
-                    ..Default::default()
-                })
-            })
-            .times(1);
         buf.input = "\"not_already_inserted\"";
         assert_eq!(
             label.parse_next(&mut buf),
             Ok("not_already_inserted".to_string())
+        );
+        assert_eq!(
+            buf.state.db.report_builder.report.contexts,
+            &[Context::new("not_already_inserted")]
         );
 
         // Malformed labels should never get to inserting
@@ -1333,19 +1301,6 @@ mod tests {
             input: "",
             state: test_ctx.parse_ctx,
         };
-
-        // See `test_label()` for testing this logic. Stub the report_builder stuff for
-        // these tests.
-        buf.state
-            .db
-            .report_builder
-            .expect_insert_context()
-            .returning(|_, name| {
-                Ok(Context {
-                    name: name.to_string(),
-                    ..Default::default()
-                })
-            });
 
         let valid_test_cases = [
             (
@@ -1464,11 +1419,6 @@ mod tests {
             state: test_ctx.parse_ctx,
         };
         buf.state.labels_index.insert("test_case".to_string(), 100);
-
-        // The logic which inserts all the data from a `ReportLine` into
-        // `buf.state.report_builder` is tested in
-        // `src/parsers/pyreport_shim/chunks/utils.rs`. Stub `report_builder` here.
-        stub_report_builder(&mut buf.state.db.report_builder);
 
         let test_cases = [
             (
@@ -1844,7 +1794,6 @@ mod tests {
             input: "",
             state: test_ctx.parse_ctx,
         };
-        stub_report_builder(&mut buf.state.db.report_builder);
 
         // (input, (result, expected_line_count))
         let test_cases = [
@@ -1946,30 +1895,6 @@ mod tests {
             state: test_ctx.parse_ctx,
         };
 
-        buf.state
-            .db
-            .report_builder
-            .expect_insert_context()
-            .with(eq(ContextType::TestCase), eq("1".to_string()))
-            .returning(|_, name| {
-                Ok(Context {
-                    name: name.to_string(),
-                    ..Default::default()
-                })
-            });
-
-        buf.state
-            .db
-            .report_builder
-            .expect_insert_context()
-            .with(eq(ContextType::TestCase), eq("test_name".to_string()))
-            .returning(|_, name| {
-                Ok(Context {
-                    name: name.to_string(),
-                    ..Default::default()
-                })
-            });
-
         assert!(buf.state.labels_index.is_empty());
         let test_cases = [
             (
@@ -2003,6 +1928,12 @@ mod tests {
         assert_eq!(buf.state.labels_index.len(), 2);
         assert!(buf.state.labels_index.contains_key("1"));
         assert!(buf.state.labels_index.contains_key("test_name"));
+
+        let report = buf.state.db.report_builder.build().unwrap();
+        assert_eq!(
+            report.contexts,
+            &[Context::new("test_name"), Context::new("test_name")]
+        );
     }
 
     #[test]
@@ -2013,7 +1944,6 @@ mod tests {
             state: test_ctx.parse_ctx,
         };
         buf.state.labels_index.insert("test_case".to_string(), 100);
-        stub_report_builder(&mut buf.state.db.report_builder);
 
         // (input, (result, expected_chunk_index, expected_line_count))
         let test_cases = [
