@@ -3,7 +3,7 @@ use std::io::Write;
 use serde_json::json;
 
 use crate::{
-    error::{CodecovError, Result},
+    error::Result,
     parsers::json::JsonVal,
     report::{models, sqlite::json_value_from_sql, SqliteReport},
 };
@@ -41,25 +41,11 @@ fn sql_to_files_dict(report: &SqliteReport, output: &mut impl Write) -> Result<(
         .prepare_cached(include_str!("queries/files_to_report_json.sql"))?;
     let mut rows = stmt.query([])?;
 
-    fn maybe_write_current_file(
-        current_file: &Option<(String, JsonVal)>,
-        output: &mut impl Write,
-        first_file: bool,
-    ) -> Result<()> {
-        if let Some((current_path, current_file)) = &current_file {
-            let delimiter = if first_file { "" } else { "," };
-            write!(output, "{delimiter}\"{current_path}\": {current_file}")?;
-        }
-        Ok(())
-    }
-
-    /// The data for a single file is spread across multiple rows in the results
-    /// of `queries/files_to_report_json.sql`. However, every row contains a
-    /// copy of certain aggregate whole-file metrics. This helper function
-    /// is given the first row for each file and returns the JSON array that
-    /// will be written for that file, but only those whole-file metrics are
-    /// filled in. The rest of the array will be filled out by processing the
-    /// rest of the columns/rows returned for this file.
+    /// Each row returned by `queries/files_to_report_json.sql` represents a
+    /// `models::SourceFile` from a `SqliteReport` alongside some aggregated
+    /// coverage metrics for that file. This helper function returns the
+    /// key/value pair that will be written into the files object for a row,
+    /// where the key is the file's path and the value is its data.
     fn build_file_from_row(row: &rusqlite::Row) -> Result<(String, JsonVal)> {
         let chunk_index = row.get::<usize, i64>(0)?;
         let new_path = row.get(2)?;
@@ -91,33 +77,11 @@ fn sql_to_files_dict(report: &SqliteReport, output: &mut impl Write) -> Result<(
 
         Ok((
             new_path,
-            json!([chunk_index, totals, {"meta": {"session_count": 0}}, JsonVal::Null]),
-        ))
-    }
-
-    /// Each file in the files section of a report JSON includes a breakdown of
-    /// aggregated coverage metrics _per session_. Each row in the results
-    /// of `queries/files_to_report_json.sql` contains those per-session
-    /// metrics and this helper function returns the key/value pair that
-    /// will be written for a session, where the key is the session's ID and the
-    /// value is an array of its metrics.
-    fn build_session_totals_from_row(row: &rusqlite::Row) -> Result<(String, JsonVal)> {
-        let session_id = row.get(11)?;
-        let lines = row.get::<usize, i64>(12)?;
-        let hits = row.get(13)?;
-        let misses = row.get::<usize, i64>(14)?;
-        let partials = row.get::<usize, i64>(15)?;
-
-        let coverage_pct = calculate_coverage_pct(hits, lines);
-        Ok((
-            session_id,
             json!([
-                0, // file_count
-                lines,
-                hits,
-                misses,
-                partials,
-                coverage_pct,
+                chunk_index,
+                totals,
+                JsonVal::Null, /* session_totals */
+                JsonVal::Null  /* diff_totals */
             ]),
         ))
     }
@@ -126,60 +90,14 @@ fn sql_to_files_dict(report: &SqliteReport, output: &mut impl Write) -> Result<(
     // over our query results. It's the caller's responsibility to write
     // surroundings {}s or ,s as needed.
     write!(output, "\"files\": {{")?;
-
-    // Each row in our query results corresponds to a single session, and a file can
-    // have several sessions. We build up the current file over many rows, and
-    // when we get to a row for a new file, we write the current file and then
-    // start building the new one.
-    let mut current_file: Option<(String, JsonVal)> = None;
     let mut first_file = true;
     while let Some(row) = rows.next()? {
-        let chunk_index = row.get(0)?;
-        let is_new_file = if let Some((_, JsonVal::Array(v))) = &current_file {
-            v[0].as_u64() != chunk_index
-        } else {
-            true
-        };
-        // When we encounter the first row for a new file, we want to write out the
-        // current file and then start building the new one. The very first row
-        // will appear to be a new file, but it isn't really. This logic will
-        // effectively no-op `maybe_write_current_file()` and leave `first_file`
-        // as `false` in that case and then begin building the first file.
-        if is_new_file {
-            maybe_write_current_file(&current_file, output, first_file)?;
-            first_file = current_file.is_none();
-            current_file = Some(build_file_from_row(row)?);
-        }
-
-        let (session_id, session_totals) = build_session_totals_from_row(row)?;
-
-        let Some((_, JsonVal::Array(file_values))) = &mut current_file else {
-            return Err(CodecovError::PyreportConversionError(
-                "current file is null".to_string(),
-            ));
-        };
-
-        let Some(JsonVal::Object(session_map)) = file_values.get_mut(2) else {
-            return Err(CodecovError::PyreportConversionError(
-                "current file is missing session map".to_string(),
-            ));
-        };
-
-        session_map.insert(session_id, session_totals);
-
-        let meta = session_map
-            .get_mut("meta")
-            .unwrap()
-            .as_object_mut()
-            .unwrap();
-        let session_count = meta.get("session_count").unwrap().as_i64().unwrap();
-        meta.insert("session_count".into(), JsonVal::from(session_count + 1));
+        let (file_path, file) = build_file_from_row(row)?;
+        // No preceding , for the first file we write
+        let delimiter = if first_file { "" } else { "," };
+        write!(output, "{delimiter}\"{file_path}\": {file}")?;
+        first_file = false;
     }
-    // The loop writes each file when it gets to the first row from the next file.
-    // There are no rows following the last file, so we have to manually write
-    // it here.
-    maybe_write_current_file(&current_file, output, first_file)?;
-
     write!(output, "}}")?;
     Ok(())
 }
@@ -208,11 +126,10 @@ fn sql_to_sessions_dict(report: &SqliteReport, output: &mut impl Write) -> Resul
     let mut rows = stmt.query([])?;
 
     /// Each row returned by `queries/sessions_to_report_json.sql` represents a
-    /// "session" in pyreport parlance, or a `models::Context` with a
-    /// `context_type` of `models::ContextType::Upload` in a `SQLiteReport`.
-    /// This helper function returns the key/value pair that will be written
-    /// into the sessions object for a row, where the key is the session ID
-    /// and the value is the data for that session.
+    /// "session" in pyreport parlance, or a `models::RawUpload` in a
+    /// `SQLiteReport`. This helper function returns the key/value pair that
+    /// will be written into the sessions object for a row, where the key is
+    /// the session ID and the value is the data for that session.
     fn build_session_from_row(row: &rusqlite::Row) -> Result<(String, JsonVal)> {
         let session_id = row.get::<usize, String>(0)?;
         let file_count = row.get::<usize, i64>(2)?;
@@ -611,25 +528,7 @@ mod tests {
                         4,          // total complexity
                         0           // diff
                     ],
-                    {
-                        "0": [
-                            0,      // file count
-                            2,      // line count
-                            0,      // hits
-                            2,      // misses
-                            0,      // partials
-                            "0"     // coverage %
-                        ],
-                        "1": [
-                            0,      // file count
-                            3,      // lines
-                            2,      // hits
-                            0,      // misses
-                            1,      // partials
-                            "66.66667" // coverage %
-                        ],
-                        "meta": {"session_count": 2},
-                    },
+                    null,
                     null
                 ],
                 "src/report/report.rs": [
@@ -649,10 +548,7 @@ mod tests {
                         4,      // total complexity
                         0       // diff
                     ],
-                    {
-                        "1": [0, 4, 4, 0, 0, "100"],
-                        "meta": {"session_count": 1}
-                    },
+                    null,
                     null
                 ],
             }
@@ -755,20 +651,13 @@ mod tests {
                 "src/report/models.rs": [
                     0,
                     [0, 5, 2, 2, 1, "40.00000", 1, 2, 0, 0, 2, 4, 0],
-                    {
-                        "0": [0, 2, 0, 2, 0, "0"],
-                        "1": [0, 3, 2, 0, 1, "66.66667"],
-                        "meta": {"session_count": 2},
-                    },
+                    null,
                     null
                 ],
                 "src/report/report.rs": [
                     1,
                     [0, 4, 4, 0, 0, "100", 1, 1, 0, 0, 2, 4, 0],
-                    {
-                        "1": [0, 4, 4, 0, 0, "100"],
-                        "meta": {"session_count": 1}
-                    },
+                    null,
                     null
                 ],
             },
