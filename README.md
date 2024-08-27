@@ -16,14 +16,16 @@ All details (e.g. SQLite schema, code interfaces) subject to breaking changes un
 
 ## Developing
 
-At time of writing, `codecov-rs` requires the nightly compiler for niceties such as `#[feature(trait_alias)]` in the library itself.
+Set up your development environment:
+- Install the nightly compiler via [rustup](https://rustup.rs/). At time of writing, `codecov-rs` requires the nightly compiler for niceties such as `#[feature(trait_alias)]`.
+- To work on the Python bindings, set up a virtualenv with your tool of choice and install our Python dependencies: `pip install -r python/requirements.dev.txt`.
+- Install lint hooks with `pip install pre-commit && pre-commit install`.
+- Large sample test reports are checked in using [Git LFS](https://git-lfs.com/) in `core/fixtures/**/large` directories (e.g. `core/fixtures/pyreport/large`). Tests and benchmarks may reference them so installing it yourself is recommended.
 
 `codecov-rs` aims to serve as effective documentation for every flavor of every format it supports. To that end, the following are greatly appreciated in submissions:
 - Thorough doc comments (`///` / `/**`). For parsers, include snippets that show what inputs look like
 - Granular, in-module unit tests
 - Integration tests with real-world samples (that are safe to distribute; don't send us data from your private repo)
-
-Large sample test reports are checked in using [Git LFS](https://git-lfs.com/) in `core/fixtures/**/large` directories (e.g. `core/fixtures/pyreport/large`). Tests and benchmarks may reference them so installing it yourself is recommended.
 
 The `examples/` directory contains runnable commands for developers including:
 - `parse_pyreport`: converts a given pyreport into a SQLite report
@@ -31,11 +33,12 @@ The `examples/` directory contains runnable commands for developers including:
 
 You can run an example with `cargo run --example <example> <arguments>`. Consider following suit for your own new feature.
 
-Install lint hooks with `pip install pre-commit && pre-commit install`.
-
 ### Repository structure
 
 - `core/`: Rust crate with all of the core coverage-processing functionality
+- `bindings/`: Rust crate with PyO3 bindings for `core/`
+- `python/codecov_rs`: Python code using/typing the Rust crate in `bindings/`
+- `python/tests`: Python tests
 
 ### Writing new parsers
 
@@ -58,7 +61,11 @@ Non-XML formats lack clean OOTB support for streaming so `codecov-rs` currently 
 
 Run tests with:
 ```
+# Rust tests
 $ cargo test
+
+# Python tests
+$ pytest
 ```
 
 ### Benchmarks

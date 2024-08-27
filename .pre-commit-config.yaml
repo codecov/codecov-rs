@@ -1,7 +1,7 @@
 repos:
   - repo: local
     hooks:
-      - id: format
+      - id: rustfmt
         name: cargo fmt
         entry: cargo fmt
         args: ["--check", "--"]
@@ -16,3 +16,22 @@ repos:
         pass_filenames: false
         types: [rust]
         language: system
+      - id: ruffcheck
+        name: ruff check
+        entry: ruff check
+        require_serial: true
+        types: [python]
+        language: system
+      - id: rufffmt
+        name: ruff format
+        entry: ruff format
+        require_serial: true
+        types: [python]
+        language: system
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: 'v1.10.0'
+    hooks:
+    - id: mypy
+      verbose: true
+      entry: bash -c 'mypy "$@" || true' --
+      types: [python]
