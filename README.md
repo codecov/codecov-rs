@@ -36,6 +36,7 @@ Install lint hooks with `pip install pre-commit && pre-commit install`.
 ### Repository structure
 
 - `core/`: Rust crate with all of the core coverage-processing functionality
+- `bindings/`: Rust crate with PyO3 bindings for `core/`
 
 ### Writing new parsers
 
