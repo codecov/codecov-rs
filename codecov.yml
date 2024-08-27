@@ -1,0 +1,27 @@
+comment:
+  layout: "condensed_header, diff, condensed_files, components, condensed_footer"
+
+component_management:
+  default_rules:
+    statuses:
+      - type: project
+        target: auto
+        branches:
+          - "!main"
+      - type: patch
+        target: auto
+        branches:
+          - "!main"
+  individual_components:
+    - component_id: rust_core
+      name: core
+      paths:
+        - core/**
+    - component_id: rust_bindings
+      name: bindings
+      paths:
+        - bindings/**
+    - component_id: python_package
+      name: python
+      paths:
+        - python/codecov_rs/**
