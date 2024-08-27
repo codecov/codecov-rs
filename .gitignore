@@ -17,5 +17,13 @@ target/
 # Vim swapfiles
 .*.sw*
 
+# Python junk
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Native extensions for Python
+*.so
+
 .git
 lcov.info
