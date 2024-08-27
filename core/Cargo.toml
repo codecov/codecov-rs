@@ -7,9 +7,6 @@ edition = "2021"
 default = ["pyreport"]
 pyreport = []
 
-[profile.release]
-debug = 1
-
 [dependencies]
 include_dir = "0.7.3"
 memmap2 = "0.9.4"
