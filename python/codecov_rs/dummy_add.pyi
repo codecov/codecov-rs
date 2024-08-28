@@ -1,0 +1,3 @@
+from pydantic.types import NonNegativeInt
+
+def dummy_add(a: NonNegativeInt, b: NonNegativeInt) -> NonNegativeInt: ...
