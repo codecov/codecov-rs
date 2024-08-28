@@ -1,0 +1,30 @@
+comment:
+  layout: "condensed_header, diff, condensed_files, components, condensed_footer"
+
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1 # 1% drops are frowny, 0.1% drops are fine
+    patch:
+      default:
+        target: auto
+        threshold: 1 # 1% drops are frowny, 0.1% drops are fine
+
+component_management:
+  individual_components:
+    - component_id: rust_core
+      name: core
+      paths:
+        - core/**
+
+    - component_id: rust_bindings
+      name: bindings
+      paths:
+        - bindings/**
+
+    - component_id: python_package
+      name: python
+      paths:
+        - python/codecov_rs/**
