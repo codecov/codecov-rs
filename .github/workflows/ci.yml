@@ -24,9 +24,23 @@ jobs:
           toolchain: nightly
           components: clippy, rustfmt
       - name: Run lint
+        run: make lint.rust
+
+  lint-python:
+    name: Lint Python (ruff, mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - uses: actions/setup-python@v3
+        with:
+          python-version: '3.12'
+      - name: Set up venv
+        run: make ci.setup_venv
+      - name: Build and run lint
         run: |
-          cargo fmt --all --check
-          cargo clippy
+          maturin develop
+          make lint.python
 
   build:
     name: Build
@@ -43,6 +57,14 @@ jobs:
       - name: Run build
         run: |
           cargo build
+      - uses: actions/setup-python@v3
+        with:
+          python-version: '3.12'
+      - name: Install Python requirements
+        run: pip install -r python/requirements.dev.txt
+      - name: Build Python bindings
+        run: maturin build
+
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -55,9 +77,20 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
         with:
           toolchain: nightly
-      - name: Run tests
+      - name: Run Rust tests
         run: |
           cargo test
+
+      - uses: actions/setup-python@v3
+        with:
+          python-version: '3.12'
+      - name: Set up venv
+        run: make ci.setup_venv
+      - name: Run Python tests
+        run: |
+          maturin develop
+          pytest
+
   # This job runs tests, generates coverage data, and generates JUnit test
   # results in a single test invocation and then uploads it all to Codecov.
   # However, it doesn't print test results to stdout. If Codecov's failed test
@@ -80,16 +113,38 @@ jobs:
       - name: Run tests
         run: |
           cargo install cargo2junit
-          cargo llvm-cov --lcov --output-path lcov.info -- -Z unstable-options --format json --report-time | cargo2junit > results.xml
+          cargo llvm-cov --lcov --output-path core.lcov -- -Z unstable-options --format json --report-time | cargo2junit > core-test-results.xml
+
+      - uses: actions/setup-python@v3
+        with:
+          python-version: '3.12'
+      - name: Set up venv
+        run: make ci.setup_venv
+      - name: Run Python tests
+        run: |
+          # Clear prior profile data
+          cargo llvm-cov clean --workspace
+
+          # Set env vars so maturin will build our Rust code with coverage instrumentation
+          source <(cargo llvm-cov show-env --export-prefix)
+          maturin develop
+
+          # Run Python tests. Any Rust code exercised by these tests will emit coverage data
+          pytest --cov --junitxml=python-test-results.xml
+
+          # Turn the Rust coverage data into an lcov file
+          cargo llvm-cov --no-run --lcov --output-path bindings.lcov
+
       - name: Upload coverage data to Codecov
         if: ${{ !cancelled() }}
         uses: codecov/codecov-action@v4
         with:
+          files: ./core.lcov,./bindings.lcov,./.coverage
           token: ${{ secrets.CODECOV_ORG_TOKEN }}
       - name: Upload test results to Codecov
         if: ${{ !cancelled() }}
         uses: codecov/test-results-action@v1
         with:
-          file: ./results.xml
+          files: ./core-test-results.xml,./python-test-results.xml
           token: ${{ secrets.CODECOV_ORG_TOKEN }}
           verbose: true
