@@ -4,11 +4,9 @@ build-backend = "maturin"
 
 [project]
 name = "codecov_rs"
-authors = [
-    {name = "Codecov", email = "support@codecov.io"},
-]
+authors = [{ name = "Codecov", email = "support@codecov.io" }]
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = { file = "LICENSE.md" }
 classifiers = [
     "Programming Language :: Rust",
@@ -25,7 +23,7 @@ python-source = "python"
 
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 plugins = ["pydantic.mypy"]
 
 # Don't bother scanning Rust directories
@@ -39,8 +37,8 @@ include = ["pyproject.toml", "python/**/*.py", "python/**/*.pyi"]
 line-length = 88
 indent-width = 4
 
-# Assume Python 3.11
-target-version = "py311"
+# Assume Python 3.12
+target-version = "py312"
 
 [tool.ruff.lint]
 # Currently only enabled for F (Pyflakes), I (isort), E,W (pycodestyle:Error/Warning), PLC/PLE (Pylint:Convention/Error) 
