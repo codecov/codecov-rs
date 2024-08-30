@@ -6,10 +6,9 @@ use std::{
 };
 
 use codecov_rs::{
-    parsers::{
-        common::ReportBuilderCtx,
-        pyreport,
-        pyreport::{chunks, report_json},
+    parsers::pyreport::{
+        self, chunks,
+        report_json::{self, ParsedReportJson},
     },
     report::{
         models, pyreport::ToPyreport, Report, ReportBuilder, SqliteReport, SqliteReportBuilder,
@@ -22,8 +21,6 @@ use winnow::Parser;
 
 mod common;
 
-type ReportJsonStream<'a> =
-    report_json::ReportOutputStream<&'a str, SqliteReport, SqliteReportBuilder>;
 type ChunksStream<'a> = chunks::ReportOutputStream<&'a str, SqliteReport, SqliteReportBuilder>;
 
 struct Ctx {
@@ -44,15 +41,6 @@ fn test_parse_report_json() {
 
     let rng_seed = 5;
     let mut rng = StdRng::seed_from_u64(rng_seed);
-
-    let test_ctx = setup();
-    let parse_ctx = ReportBuilderCtx::new(
-        SqliteReportBuilder::new_with_seed(test_ctx.db_file, rng_seed).unwrap(),
-    );
-    let mut buf = ReportJsonStream {
-        input: &input,
-        state: parse_ctx,
-    };
 
     let expected_files = vec![
         models::SourceFile::new("src/report.rs"),
@@ -84,13 +72,19 @@ fn test_parse_report_json() {
 
     let expected_json_sessions = HashMap::from([(0, expected_session.id)]);
 
-    let (actual_files, actual_sessions) = report_json::parse_report_json
-        .parse_next(&mut buf)
+    let test_ctx = setup();
+    let mut report_builder =
+        SqliteReportBuilder::new_with_seed(test_ctx.db_file, rng_seed).unwrap();
+
+    let ParsedReportJson {
+        files: actual_files,
+        sessions: actual_sessions,
+    } = report_json::parse_report_json(input.as_bytes(), &mut report_builder)
         .expect("Failed to parse");
     assert_eq!(actual_files, expected_json_files);
     assert_eq!(actual_sessions, expected_json_sessions);
 
-    let report = buf.state.report_builder.build().unwrap();
+    let report = report_builder.build().unwrap();
 
     let files = report.list_files().unwrap();
     assert_eq!(files, expected_files);

@@ -6,6 +6,7 @@ edition = "2021"
 [features]
 default = ["pyreport"]
 pyreport = []
+testing = []
 
 [dependencies]
 include_dir = "0.7.3"
@@ -14,6 +15,7 @@ rand = "0.8.5"
 rusqlite = { version = "0.31.0", features = ["bundled", "limits"] }
 rusqlite_migration = { version = "1.2.0", features = ["from-directory"] }
 seahash = "4.1.0"
+serde = { version = "1.0.204", features = ["derive"] }
 serde_json = "1.0.117"
 thiserror = "1.0.59"
 winnow = "0.5.34"
@@ -25,3 +27,4 @@ tempfile = "3.9.0"
 [[bench]]
 name = "pyreport"
 harness = false
+required-features = ["testing"]

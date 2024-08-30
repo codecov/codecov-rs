@@ -17,6 +17,9 @@ pub enum CodecovError {
     #[error("parser error: '{0}'")]
     ParserError(winnow::error::ContextError),
 
+    #[error("parser error: '{0}'")]
+    Json(#[from] serde_json::Error),
+
     #[error("io error: '{0}'")]
     IOError(#[from] std::io::Error),
 

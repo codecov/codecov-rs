@@ -5,5 +5,4 @@ members = ["bindings", "core"]
 default-members = ["core"]
 
 [profile.release]
-
 debug = 1
