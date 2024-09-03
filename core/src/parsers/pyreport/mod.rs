@@ -8,9 +8,9 @@ use crate::{
     report::{SqliteReport, SqliteReportBuilder, SqliteReportBuilderTx},
 };
 
-pub mod report_json;
-
 pub mod chunks;
+pub mod chunks_serde;
+pub mod report_json;
 
 mod utils;
 
