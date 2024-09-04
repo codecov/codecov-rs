@@ -6,7 +6,6 @@ on:
       - main
   pull_request:
 
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
@@ -33,37 +32,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - uses: actions/setup-python@v3
-        with:
-          python-version: '3.12'
       - name: Set up venv
         run: make ci.setup_venv
       - name: Build and run lint
         run: |
           maturin develop
           make lint.python
-
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@nightly
-        with:
-          toolchain: nightly
-      - name: Run build
-        run: |
-          cargo build
-      - uses: actions/setup-python@v3
-        with:
-          python-version: '3.12'
-      - name: Install Python requirements
-        run: pip install -r python/requirements.dev.txt
-      - name: Build Python bindings
-        run: maturin build
 
   test:
     name: Test
@@ -82,8 +56,6 @@ jobs:
           cargo test
 
       - uses: actions/setup-python@v3
-        with:
-          python-version: '3.12'
       - name: Set up venv
         run: make ci.setup_venv
       - name: Run Python tests
@@ -116,8 +88,6 @@ jobs:
           cargo llvm-cov --lcov --output-path core.lcov -- -Z unstable-options --format json --report-time | cargo2junit > core-test-results.xml
 
       - uses: actions/setup-python@v3
-        with:
-          python-version: '3.12'
       - name: Set up venv
         run: make ci.setup_venv
       - name: Run Python tests
