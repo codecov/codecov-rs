@@ -138,6 +138,7 @@ version = "0.1.0"
 dependencies = [
  "codspeed-criterion-compat",
  "include_dir",
+ "memchr",
  "memmap2",
  "rand",
  "rusqlite",

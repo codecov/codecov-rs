@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, hint::black_box};
 
 use codecov_rs::{
     parsers::pyreport::{chunks, chunks_serde, report_json},
@@ -146,21 +146,11 @@ fn complex_chunks_serde(bencher: Bencher) {
 }
 
 fn parse_chunks_file_serde(input: &[u8]) {
-    let mut parser = chunks_serde::Parser::new(input);
-    loop {
-        // TODO: these are just for debugging
-        let rest = parser.rest;
-        let expecting = parser.expecting;
-        let event = parser.next();
-        match event {
-            Ok(None) => break,
-            Ok(Some(_)) => {}
-            Err(err) => {
-                let rest = std::str::from_utf8(rest).unwrap();
-                let rest = rest.get(..32).unwrap_or(rest);
-                dbg!(rest, expecting);
-                panic!("{err}");
-            }
+    let chunks_file = chunks_serde::ChunksFile::new(input).unwrap();
+    let mut chunks = chunks_file.chunks();
+    while let Some(mut chunk) = chunks.next_chunk().unwrap() {
+        while let Some(line) = chunk.next_line().unwrap() {
+            black_box(line);
         }
     }
 }

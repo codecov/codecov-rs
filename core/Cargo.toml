@@ -10,6 +10,7 @@ testing = []
 
 [dependencies]
 include_dir = "0.7.3"
+memchr = "2.7.4"
 memmap2 = "0.9.5"
 rand = "0.8.5"
 rusqlite = { version = "0.31.0", features = [
