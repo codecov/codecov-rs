@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+use crate::parsers::pyreport::chunks_serde::ChunksFileParseError;
+
 pub type Result<T, E = CodecovError> = std::result::Result<T, E>;
 
 #[derive(Error, Debug)]
@@ -26,4 +28,7 @@ pub enum CodecovError {
     #[cfg(feature = "pyreport")]
     #[error("failed to convert sqlite to pyreport: '{0}'")]
     PyreportConversionError(String),
+
+    #[error(transparent)]
+    ChunksFileParseError(#[from] ChunksFileParseError),
 }

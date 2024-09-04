@@ -1,4 +1,4 @@
-use std::{collections::HashMap, hint::black_box};
+use std::collections::HashMap;
 
 use codecov_rs::{
     parsers::pyreport::{chunks, chunks_serde, report_json},
@@ -130,8 +130,13 @@ fn simple_chunks_serde() {
         b"{}\n<<<<< end_of_header >>>>>\n{}\n[1, null, [[0, 1]]]\n\n<<<<< end_of_chunk >>>>>\n{}\n[1, null, [[0, 1]]]\n[1, null, [[0, 1]]]\n",
     ];
 
+    let report_json = report_json::ParsedReportJson {
+        files: Default::default(),
+        sessions: Default::default(),
+    };
+
     for input in chunks {
-        parse_chunks_file_serde(input)
+        parse_chunks_file_serde(input, &report_json);
     }
 }
 
@@ -142,17 +147,18 @@ fn complex_chunks_serde(bencher: Bencher) {
     let chunks =
         load_fixture("pyreport/large/worker-c71ddfd4cb1753c7a540e5248c2beaa079fc3341-chunks.txt");
 
-    bencher.bench(|| parse_chunks_file_serde(&chunks));
+    // parsing the chunks depends on having loaded the `report_json`
+    let report = load_fixture(
+        "pyreport/large/worker-c71ddfd4cb1753c7a540e5248c2beaa079fc3341-report_json.json",
+    );
+    let report_json = parse_report_json(&report);
+
+    bencher.bench(|| parse_chunks_file_serde(&chunks, &report_json));
 }
 
-fn parse_chunks_file_serde(input: &[u8]) {
-    let chunks_file = chunks_serde::ChunksFile::new(input).unwrap();
-    let mut chunks = chunks_file.chunks();
-    while let Some(mut chunk) = chunks.next_chunk().unwrap() {
-        while let Some(line) = chunk.next_line().unwrap() {
-            black_box(line);
-        }
-    }
+fn parse_chunks_file_serde(input: &[u8], report_json: &report_json::ParsedReportJson) {
+    let mut report_builder = TestReportBuilder::default();
+    chunks_serde::parse_chunks_file(input, report_json, &mut report_builder).unwrap();
 }
 
 #[track_caller]

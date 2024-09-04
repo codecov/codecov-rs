@@ -37,10 +37,84 @@ use std::{collections::HashMap, fmt, mem, sync::OnceLock};
 use memchr::{memchr, memmem};
 use serde::{de, de::IgnoredAny, Deserialize};
 
-use crate::report::pyreport::{CHUNKS_FILE_END_OF_CHUNK, CHUNKS_FILE_HEADER_TERMINATOR};
+use super::report_json::ParsedReportJson;
+use crate::{
+    error::CodecovError,
+    report::{
+        models,
+        pyreport::{
+            types::{self, PyreportCoverage, ReportLine},
+            CHUNKS_FILE_END_OF_CHUNK, CHUNKS_FILE_HEADER_TERMINATOR,
+        },
+        Report, ReportBuilder,
+    },
+};
+
+pub fn parse_chunks_file<B, R>(
+    input: &[u8],
+    _report_json: &ParsedReportJson,
+    builder: &mut B,
+) -> Result<(), CodecovError>
+where
+    B: ReportBuilder<R>,
+    R: Report,
+{
+    let chunks_file = ChunksFile::new(input)?;
+
+    let mut labels_index = HashMap::with_capacity(chunks_file.labels_index().len());
+    for (index, name) in chunks_file.labels_index() {
+        let context = builder.insert_context(name)?;
+        labels_index.insert(index.clone(), context.id);
+    }
+
+    let mut report_lines = vec![];
+
+    let mut chunks = chunks_file.chunks();
+    while let Some(mut chunk) = chunks.next_chunk()? {
+        let mut line_no = 0;
+        report_lines.clear();
+        while let Some(line) = chunk.next_line()? {
+            line_no += 1;
+            if let Some(line) = line {
+                let coverage_type = match line.1.unwrap_or_default() {
+                    CoverageType::Line => models::CoverageType::Line,
+                    CoverageType::Branch => models::CoverageType::Branch,
+                    CoverageType::Method => models::CoverageType::Method,
+                };
+                let sessions = line
+                    .2
+                    .into_iter()
+                    .map(|session| types::LineSession {
+                        session_id: session.0,
+                        coverage: session.1.into(),
+                        branches: None,   // TODO
+                        partials: None,   // TODO
+                        complexity: None, // TODO
+                    })
+                    .collect();
+
+                let mut report_line = ReportLine {
+                    line_no,
+                    coverage: line.0.into(),
+                    coverage_type,
+                    sessions,
+                    _messages: None,
+                    _complexity: None,
+                    datapoints: None, // TODO
+                };
+                report_line.normalize();
+                report_lines.push(report_line);
+            }
+        }
+        // TODO:
+        // utils::save_report_lines()?;
+    }
+
+    Ok(())
+}
 
 #[derive(Debug, thiserror::Error)]
-pub enum ParserError {
+pub enum ChunksFileParseError {
     #[error("unexpected EOF")]
     UnexpectedEof,
     #[error("unexpected input")]
@@ -53,12 +127,12 @@ pub enum ParserError {
     InvalidLineRecord(#[source] serde_json::Error),
 }
 
-impl PartialEq for ParserError {
+impl PartialEq for ChunksFileParseError {
     fn eq(&self, other: &Self) -> bool {
         core::mem::discriminant(self) == core::mem::discriminant(other)
     }
 }
-impl Eq for ParserError {}
+impl Eq for ChunksFileParseError {}
 
 #[derive(Debug)]
 pub struct ChunksFile<'d> {
@@ -67,7 +141,7 @@ pub struct ChunksFile<'d> {
 }
 
 impl<'d> ChunksFile<'d> {
-    pub fn new(mut input: &'d [u8]) -> Result<Self, ParserError> {
+    pub fn new(mut input: &'d [u8]) -> Result<Self, ChunksFileParseError> {
         static HEADER_FINDER: OnceLock<memmem::Finder> = OnceLock::new();
         let header_finder =
             HEADER_FINDER.get_or_init(|| memmem::Finder::new(CHUNKS_FILE_HEADER_TERMINATOR));
@@ -75,8 +149,8 @@ impl<'d> ChunksFile<'d> {
         let file_header = if let Some(pos) = header_finder.find(input) {
             let header_bytes = &input[..pos];
             input = &input[pos + header_finder.needle().len()..];
-            let file_header: FileHeader =
-                serde_json::from_slice(header_bytes).map_err(ParserError::InvalidFileHeader)?;
+            let file_header: FileHeader = serde_json::from_slice(header_bytes)
+                .map_err(ChunksFileParseError::InvalidFileHeader)?;
             file_header
         } else {
             FileHeader::default()
@@ -99,7 +173,7 @@ pub struct Chunks<'d> {
 }
 
 impl<'d> Chunks<'d> {
-    pub fn next_chunk(&mut self) -> Result<Option<Chunk<'d>>, ParserError> {
+    pub fn next_chunk(&mut self) -> Result<Option<Chunk<'d>>, ChunksFileParseError> {
         if self.input.is_empty() {
             return Ok(None);
         }
@@ -123,9 +197,10 @@ impl<'d> Chunks<'d> {
             }));
         }
 
-        let header_bytes = next_line(&mut chunk_bytes).ok_or(ParserError::UnexpectedInput)?;
-        let chunk_header: ChunkHeader =
-            serde_json::from_slice(header_bytes).map_err(ParserError::InvalidFileHeader)?;
+        let header_bytes =
+            next_line(&mut chunk_bytes).ok_or(ChunksFileParseError::UnexpectedInput)?;
+        let chunk_header: ChunkHeader = serde_json::from_slice(header_bytes)
+            .map_err(ChunksFileParseError::InvalidFileHeader)?;
 
         Ok(Some(Chunk {
             chunk_header,
@@ -144,7 +219,7 @@ impl<'d> Chunk<'d> {
         &self.chunk_header.present_sessions
     }
 
-    pub fn next_line(&mut self) -> Result<Option<Option<LineRecord>>, ParserError> {
+    pub fn next_line(&mut self) -> Result<Option<Option<LineRecord>>, ChunksFileParseError> {
         let Some(line) = next_line(&mut self.input) else {
             return Ok(None);
         };
@@ -154,7 +229,7 @@ impl<'d> Chunk<'d> {
         }
 
         let line_record: LineRecord =
-            serde_json::from_slice(line).map_err(ParserError::InvalidLineRecord)?;
+            serde_json::from_slice(line).map_err(ChunksFileParseError::InvalidLineRecord)?;
         return Ok(Some(Some(line_record)));
     }
 }
@@ -217,7 +292,7 @@ pub struct LineRecord(
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct LineSession(
     /// session id
-    u32,
+    usize,
     /// coverage
     Coverage,
     /// TODO: branches
@@ -258,6 +333,18 @@ pub enum Coverage {
     Partial,
     BranchTaken(u32, u32),
     HitCount(u32),
+}
+
+impl Into<PyreportCoverage> for Coverage {
+    fn into(self) -> PyreportCoverage {
+        match self {
+            Coverage::Partial => PyreportCoverage::Partial(),
+            Coverage::BranchTaken(covered, total) => {
+                PyreportCoverage::BranchesTaken { covered, total }
+            }
+            Coverage::HitCount(hits) => PyreportCoverage::HitCount(hits),
+        }
+    }
 }
 
 impl<'de> Deserialize<'de> for Coverage {

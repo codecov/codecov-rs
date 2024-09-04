@@ -187,6 +187,23 @@ pub struct ReportLine {
     pub datapoints: Option<Option<HashMap<u32, CoverageDatapoint>>>,
 }
 
+impl ReportLine {
+    pub fn normalize(&mut self) {
+        // Fix issues like recording branch coverage with `CoverageType::Method`
+        let (correct_coverage, correct_type) =
+            normalize_coverage_measurement(&self.coverage, &self.coverage_type);
+        self.coverage = correct_coverage;
+        self.coverage_type = correct_type;
+
+        // Fix the `coverage` values in each `LineSession` as well
+        for line_session in &mut self.sessions {
+            let (correct_coverage, _) =
+                normalize_coverage_measurement(&line_session.coverage, &self.coverage_type);
+            line_session.coverage = correct_coverage;
+        }
+    }
+}
+
 /// Account for some quirks and malformed data. See code comments for details.
 pub(crate) fn normalize_coverage_measurement(
     coverage: &PyreportCoverage,
