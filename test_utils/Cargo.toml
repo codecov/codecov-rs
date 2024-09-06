@@ -8,3 +8,4 @@ edition = "2021"
 name = "test_utils"
 
 [dependencies]
+rand = "0.8.5"

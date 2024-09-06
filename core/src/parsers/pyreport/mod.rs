@@ -40,32 +40,7 @@ pub fn parse_pyreport(
     chunks_file: &File,
     out_path: PathBuf,
 ) -> Result<SqliteReport> {
-    parse_pyreport_with_builder(
-        report_json_file,
-        chunks_file,
-        SqliteReportBuilder::new(out_path)?,
-    )
-}
-
-/// See [`parse_pyreport`]
-pub fn parse_pyreport_with_seed(
-    report_json_file: &File,
-    chunks_file: &File,
-    out_path: PathBuf,
-    seed: u64,
-) -> Result<SqliteReport> {
-    parse_pyreport_with_builder(
-        report_json_file,
-        chunks_file,
-        SqliteReportBuilder::new_with_seed(out_path, seed)?,
-    )
-}
-
-fn parse_pyreport_with_builder(
-    report_json_file: &File,
-    chunks_file: &File,
-    mut report_builder: SqliteReportBuilder,
-) -> Result<SqliteReport> {
+    let mut report_builder = SqliteReportBuilder::new(out_path)?;
     // Encapsulate all of this in a block so that `report_builder_tx` gets torn down
     // at the end. Otherwise, it'll hold onto a reference to `report_builder`
     // and prevent us from consuming `report_builder` to actually build a

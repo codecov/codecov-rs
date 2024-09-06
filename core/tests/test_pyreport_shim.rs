@@ -9,7 +9,7 @@ use codecov_rs::{
         models, pyreport::ToPyreport, Report, ReportBuilder, SqliteReport, SqliteReportBuilder,
     },
 };
-use rand::{rngs::StdRng, Rng, SeedableRng};
+use rand::Rng;
 use serde_json::json;
 use tempfile::TempDir;
 use test_utils::fixtures::{
@@ -35,8 +35,7 @@ fn setup() -> Ctx {
 fn test_parse_report_json() {
     let input = read_fixture(Pyreport, Small, "codecov-rs-reports-json-d2a9ba1.txt").unwrap();
 
-    let rng_seed = 5;
-    let mut rng = StdRng::seed_from_u64(rng_seed);
+    let mut rng = test_utils::rng::rng();
 
     let expected_files = vec![
         models::SourceFile::new("src/report.rs"),
@@ -69,8 +68,7 @@ fn test_parse_report_json() {
     let expected_json_sessions = HashMap::from([(0, expected_session.id)]);
 
     let test_ctx = setup();
-    let mut report_builder =
-        SqliteReportBuilder::new_with_seed(test_ctx.db_file, rng_seed).unwrap();
+    let mut report_builder = SqliteReportBuilder::new(test_ctx.db_file).unwrap();
 
     let ParsedReportJson {
         files: actual_files,
@@ -210,16 +208,10 @@ fn test_parse_pyreport() {
     let chunks_file = open_fixture(Pyreport, Small, "codecov-rs-chunks-d2a9ba1.txt").unwrap();
     let test_ctx = setup();
 
-    let rng_seed = 5;
-    let mut rng = StdRng::seed_from_u64(rng_seed);
+    let mut rng = test_utils::rng::rng();
 
-    let report = pyreport::parse_pyreport_with_seed(
-        &report_json_file,
-        &chunks_file,
-        test_ctx.db_file,
-        rng_seed,
-    )
-    .expect("Failed to parse pyreport");
+    let report = pyreport::parse_pyreport(&report_json_file, &chunks_file, test_ctx.db_file)
+        .expect("Failed to parse pyreport");
 
     let expected_session = models::RawUpload {
         id: rng.gen(),
