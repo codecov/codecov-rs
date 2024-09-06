@@ -1,9 +1,4 @@
-use std::{
-    collections::HashMap,
-    fs::File,
-    io::Seek,
-    path::{Path, PathBuf},
-};
+use std::{collections::HashMap, fs::File, io::Seek, path::PathBuf};
 
 use codecov_rs::{
     parsers::pyreport::{
@@ -17,9 +12,8 @@ use codecov_rs::{
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use serde_json::json;
 use tempfile::TempDir;
+use test_utils::{open_fixture, read_fixture, FixtureFormat::Pyreport, FixtureSize::Small};
 use winnow::Parser;
-
-mod common;
 
 type ChunksStream<'a> = chunks::ReportOutputStream<&'a str, SqliteReport, SqliteReportBuilder>;
 
@@ -37,7 +31,7 @@ fn setup() -> Ctx {
 
 #[test]
 fn test_parse_report_json() {
-    let input = common::read_sample_file(Path::new("codecov-rs-reports-json-d2a9ba1.txt"));
+    let input = read_fixture(Pyreport, Small, "codecov-rs-reports-json-d2a9ba1.txt").unwrap();
 
     let rng_seed = 5;
     let mut rng = StdRng::seed_from_u64(rng_seed);
@@ -79,8 +73,7 @@ fn test_parse_report_json() {
     let ParsedReportJson {
         files: actual_files,
         sessions: actual_sessions,
-    } = report_json::parse_report_json(input.as_bytes(), &mut report_builder)
-        .expect("Failed to parse");
+    } = report_json::parse_report_json(&input, &mut report_builder).expect("Failed to parse");
     assert_eq!(actual_files, expected_json_files);
     assert_eq!(actual_sessions, expected_json_sessions);
 
@@ -98,7 +91,8 @@ fn test_parse_report_json() {
 
 #[test]
 fn test_parse_chunks_file() {
-    let input = common::read_sample_file(Path::new("codecov-rs-chunks-d2a9ba1.txt"));
+    let input = read_fixture(Pyreport, Small, "codecov-rs-chunks-d2a9ba1.txt").unwrap();
+    let input = std::str::from_utf8(&input).unwrap();
     let test_ctx = setup();
 
     let mut report_builder = SqliteReportBuilder::new(test_ctx.db_file).unwrap();
@@ -132,7 +126,7 @@ fn test_parse_chunks_file() {
     );
 
     let mut buf = ChunksStream {
-        input: &input,
+        input,
         state: chunks_parse_ctx,
     };
 
@@ -210,10 +204,8 @@ fn test_parse_chunks_file() {
 #[test]
 fn test_parse_pyreport() {
     let report_json_file =
-        File::open(common::sample_data_path().join("codecov-rs-reports-json-d2a9ba1.txt"))
-            .expect("Failed to open report json file");
-    let chunks_file = File::open(common::sample_data_path().join("codecov-rs-chunks-d2a9ba1.txt"))
-        .expect("Failed to open chunks file");
+        open_fixture(Pyreport, Small, "codecov-rs-reports-json-d2a9ba1.txt").unwrap();
+    let chunks_file = open_fixture(Pyreport, Small, "codecov-rs-chunks-d2a9ba1.txt").unwrap();
     let test_ctx = setup();
 
     let rng_seed = 5;
@@ -318,11 +310,8 @@ fn test_parse_pyreport() {
 #[test]
 fn test_sql_to_pyreport_to_sql_totals_match() {
     let report_json_input_file =
-        File::open(common::sample_data_path().join("codecov-rs-reports-json-d2a9ba1.txt"))
-            .expect("Failed to open report json file");
-    let chunks_input_file =
-        File::open(common::sample_data_path().join("codecov-rs-chunks-d2a9ba1.txt"))
-            .expect("Failed to open chunks file");
+        open_fixture(Pyreport, Small, "codecov-rs-reports-json-d2a9ba1.txt").unwrap();
+    let chunks_input_file = open_fixture(Pyreport, Small, "codecov-rs-chunks-d2a9ba1.txt").unwrap();
     let test_ctx = setup();
 
     let report = pyreport::parse_pyreport(

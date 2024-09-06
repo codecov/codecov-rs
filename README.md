@@ -72,5 +72,5 @@ $ pytest
 
 Run benchmarks with:
 ```
-$ cargo bench
+$ cargo bench --features testing
 ```
