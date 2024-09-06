@@ -53,7 +53,7 @@ jobs:
           toolchain: nightly
       - name: Run Rust tests
         run: |
-          cargo test
+          cargo test --features testing
 
       - uses: actions/setup-python@v3
       - name: Set up venv
@@ -85,7 +85,7 @@ jobs:
       - name: Run tests
         run: |
           cargo install cargo2junit
-          cargo llvm-cov --lcov --output-path core.lcov -- -Z unstable-options --format json --report-time | cargo2junit > core-test-results.xml
+          cargo llvm-cov --lcov --output-path core.lcov -- --features testing -Z unstable-options --format json --report-time | cargo2junit > core-test-results.xml
 
       - uses: actions/setup-python@v3
       - name: Set up venv

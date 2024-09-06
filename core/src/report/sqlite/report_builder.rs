@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use rand::{rngs::StdRng, Rng, SeedableRng};
+use rand::{rngs::StdRng, Rng};
 use rusqlite::{Connection, Transaction};
 
 use super::{models::Insertable, open_database, SqliteReport};
@@ -11,6 +11,17 @@ use crate::{
     error::{CodecovError, Result},
     report::{models, ReportBuilder},
 };
+
+#[cfg(any(test, feature = "testing"))]
+fn create_rng() -> StdRng {
+    test_utils::rng::rng()
+}
+
+#[cfg(not(any(test, feature = "testing")))]
+fn create_rng() -> StdRng {
+    use rand::SeedableRng;
+    StdRng::from_entropy()
+}
 
 /// Returned by [`SqliteReportBuilder::transaction`]. Contains the actual
 /// implementation for most of the `ReportBuilder` trait except for `build()`
@@ -53,22 +64,14 @@ pub struct SqliteReportBuilder {
 }
 
 impl SqliteReportBuilder {
-    fn new_with_rng(filename: PathBuf, rng: StdRng) -> Result<SqliteReportBuilder> {
+    pub fn new(filename: PathBuf) -> Result<SqliteReportBuilder> {
         let conn = open_database(&filename)?;
         Ok(SqliteReportBuilder {
             filename,
             conn,
             id_sequence: 0..,
-            rng,
+            rng: create_rng(),
         })
-    }
-
-    pub fn new_with_seed(filename: PathBuf, seed: u64) -> Result<SqliteReportBuilder> {
-        Self::new_with_rng(filename, StdRng::seed_from_u64(seed))
-    }
-
-    pub fn new(filename: PathBuf) -> Result<SqliteReportBuilder> {
-        Self::new_with_rng(filename, StdRng::from_entropy())
     }
 
     /// Create a [`SqliteReportBuilderTx`] with a [`rusqlite::Transaction`] that

@@ -256,7 +256,7 @@ mod tests {
     }
 
     fn build_sample_report(path: PathBuf) -> Result<SqliteReport> {
-        let mut builder = SqliteReportBuilder::new_with_seed(path, 5)?;
+        let mut builder = SqliteReportBuilder::new(path)?;
         let file_1 = builder.insert_file("src/report/report.rs")?;
         let file_2 = builder.insert_file("src/report/models.rs")?;
 

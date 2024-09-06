@@ -62,7 +62,7 @@ Non-XML formats lack clean OOTB support for streaming so `codecov-rs` currently 
 Run tests with:
 ```
 # Rust tests
-$ cargo test
+$ cargo test --features testing
 
 # Python tests
 $ pytest

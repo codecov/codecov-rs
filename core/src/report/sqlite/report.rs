@@ -214,7 +214,7 @@ mod tests {
         let db_file_left = ctx.temp_dir.path().join("left.sqlite");
         let db_file_right = ctx.temp_dir.path().join("right.sqlite");
 
-        let mut left_report_builder = SqliteReportBuilder::new_with_seed(db_file_left, 5).unwrap();
+        let mut left_report_builder = SqliteReportBuilder::new(db_file_left).unwrap();
         let file_1 = left_report_builder.insert_file("src/report.rs").unwrap();
         let file_2 = left_report_builder
             .insert_file("src/report/models.rs")
@@ -262,8 +262,11 @@ mod tests {
             });
         }
 
-        let mut right_report_builder =
-            SqliteReportBuilder::new_with_seed(db_file_right, 10).unwrap();
+        // Need to change the RNG seed that this report builder will use to generate
+        // different IDs
+        test_utils::rng::set_seed(9999);
+
+        let mut right_report_builder = SqliteReportBuilder::new(db_file_right).unwrap();
         let file_2 = right_report_builder
             .insert_file("src/report/models.rs")
             .unwrap();
