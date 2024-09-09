@@ -9,7 +9,6 @@ use codecov_rs::{
         models, pyreport::ToPyreport, Report, ReportBuilder, SqliteReport, SqliteReportBuilder,
     },
 };
-use rand::{rngs::StdRng, Rng, SeedableRng};
 use serde_json::json;
 use tempfile::TempDir;
 use test_utils::fixtures::{
@@ -35,17 +34,34 @@ fn setup() -> Ctx {
 fn test_parse_report_json() {
     let input = read_fixture(Pyreport, Small, "codecov-rs-reports-json-d2a9ba1.txt").unwrap();
 
-    let rng_seed = 5;
-    let mut rng = StdRng::seed_from_u64(rng_seed);
+    let test_ctx = setup();
+    let mut report_builder = SqliteReportBuilder::new(test_ctx.db_file).unwrap();
 
+    let ParsedReportJson {
+        files: file_id_map,
+        sessions: session_id_map,
+    } = report_json::parse_report_json(&input, &mut report_builder).expect("Failed to parse");
+    let report = report_builder.build().unwrap();
+
+    // Test database inserts
     let expected_files = vec![
         models::SourceFile::new("src/report.rs"),
         models::SourceFile::new("src/report/models.rs"),
         models::SourceFile::new("src/report/schema.rs"),
     ];
+    let files = report.list_files().unwrap();
+    assert_eq!(files, expected_files);
+
+    let contexts = report.list_contexts().unwrap();
+    assert!(contexts.is_empty());
+
+    // The inserted RawUpload has a random ID that we need to work around for our
+    // asserts
+    let uploads = report.list_raw_uploads().unwrap();
+    assert_eq!(uploads.len(), 1);
 
     let expected_session = models::RawUpload {
-        id: rng.gen(),
+        id: uploads[0].id,
         timestamp: Some(1704827412),
         raw_upload_url: Some("v4/raw/2024-01-09/BD18D96000B80FA280C411B0081460E1/d2a9ba133c9b30468d97e7fad1462728571ad699/065067fe-7677-4bd8-93b2-0a8d0b879f78/340c0c0b-a955-46a0-9de9-3a9b5f2e81e2.txt".to_string()),
         flags: Some(json!([])),
@@ -59,36 +75,18 @@ fn test_parse_report_json() {
         session_type: Some("uploaded".to_string()),
         session_extras: Some(json!({})),
     };
+    assert_eq!(uploads[0], expected_session);
 
-    let expected_json_files = HashMap::from([
+    // Test return of `parse_report_json()`
+    let expected_file_id_map = HashMap::from([
         (0, expected_files[0].id),
         (1, expected_files[1].id),
         (2, expected_files[2].id),
     ]);
+    assert_eq!(file_id_map, expected_file_id_map);
 
-    let expected_json_sessions = HashMap::from([(0, expected_session.id)]);
-
-    let test_ctx = setup();
-    let mut report_builder =
-        SqliteReportBuilder::new_with_seed(test_ctx.db_file, rng_seed).unwrap();
-
-    let ParsedReportJson {
-        files: actual_files,
-        sessions: actual_sessions,
-    } = report_json::parse_report_json(&input, &mut report_builder).expect("Failed to parse");
-    assert_eq!(actual_files, expected_json_files);
-    assert_eq!(actual_sessions, expected_json_sessions);
-
-    let report = report_builder.build().unwrap();
-
-    let files = report.list_files().unwrap();
-    assert_eq!(files, expected_files);
-
-    let contexts = report.list_contexts().unwrap();
-    assert!(contexts.is_empty());
-
-    let uploads = report.list_raw_uploads().unwrap();
-    assert_eq!(uploads, vec![expected_session]);
+    let expected_session_id_map = HashMap::from([(0, expected_session.id)]);
+    assert_eq!(session_id_map, expected_session_id_map);
 }
 
 #[test]
@@ -210,19 +208,21 @@ fn test_parse_pyreport() {
     let chunks_file = open_fixture(Pyreport, Small, "codecov-rs-chunks-d2a9ba1.txt").unwrap();
     let test_ctx = setup();
 
-    let rng_seed = 5;
-    let mut rng = StdRng::seed_from_u64(rng_seed);
+    let report = pyreport::parse_pyreport(&report_json_file, &chunks_file, test_ctx.db_file)
+        .expect("Failed to parse pyreport");
 
-    let report = pyreport::parse_pyreport_with_seed(
-        &report_json_file,
-        &chunks_file,
-        test_ctx.db_file,
-        rng_seed,
-    )
-    .expect("Failed to parse pyreport");
+    let expected_files = [
+        models::SourceFile::new("src/report.rs"),
+        models::SourceFile::new("src/report/models.rs"),
+        models::SourceFile::new("src/report/schema.rs"),
+    ];
+    let files = report.list_files().unwrap();
+    assert_eq!(files, expected_files);
 
+    let uploads = report.list_raw_uploads().unwrap();
+    assert_eq!(uploads.len(), 1);
     let expected_session = models::RawUpload {
-        id: rng.gen(),
+        id: uploads[0].id,
         timestamp: Some(1704827412),
         raw_upload_url: Some("v4/raw/2024-01-09/BD18D96000B80FA280C411B0081460E1/d2a9ba133c9b30468d97e7fad1462728571ad699/065067fe-7677-4bd8-93b2-0a8d0b879f78/340c0c0b-a955-46a0-9de9-3a9b5f2e81e2.txt".to_string()),
         flags: Some(json!([])),
@@ -236,12 +236,10 @@ fn test_parse_pyreport() {
         session_type: Some("uploaded".to_string()),
         session_extras: Some(json!({})),
     };
+    assert_eq!(uploads[0], expected_session);
 
-    let expected_files = [
-        models::SourceFile::new("src/report.rs"),
-        models::SourceFile::new("src/report/models.rs"),
-        models::SourceFile::new("src/report/schema.rs"),
-    ];
+    let contexts = report.list_contexts().unwrap();
+    assert!(contexts.is_empty());
 
     // Helper function for creating our expected values
     let mut coverage_sample_id_iterator = 0..;
@@ -301,12 +299,6 @@ fn test_parse_pyreport() {
         .list_coverage_samples()
         .expect("Failed to list coverage samples");
     assert_eq!(actual_coverage_samples, expected_coverage_samples);
-
-    let contexts = report.list_contexts().unwrap();
-    assert!(contexts.is_empty());
-
-    let uploads = report.list_raw_uploads().unwrap();
-    assert_eq!(uploads, vec![expected_session]);
 }
 
 #[test]
