@@ -1,6 +1,9 @@
 comment:
   layout: "condensed_header, diff, condensed_files, components, condensed_footer"
 
+ignore:
+  - "test_utils/"
+
 coverage:
   status:
     project:

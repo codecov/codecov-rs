@@ -23,6 +23,7 @@ winnow = "0.5.34"
 [dev-dependencies]
 divan = "0.1.14"
 tempfile = "3.9.0"
+test_utils = { path = "../test_utils" }
 
 [[bench]]
 name = "pyreport"

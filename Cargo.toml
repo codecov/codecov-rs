@@ -1,7 +1,7 @@
 [workspace]
 
 resolver = "2"
-members = ["bindings", "core"]
+members = ["bindings", "core", "test_utils"]
 default-members = ["core"]
 
 [profile.release]

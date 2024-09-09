@@ -93,6 +93,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "test_utils",
  "thiserror",
  "winnow",
 ]
@@ -560,6 +561,10 @@ dependencies = [
  "rustix",
  "windows-sys 0.48.0",
 ]
+
+[[package]]
+name = "test_utils"
+version = "0.1.0"
 
 [[package]]
 name = "thiserror"
