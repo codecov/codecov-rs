@@ -267,7 +267,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::report::test::TestReportBuilder;
+    use crate::test_utils::test_report::TestReportBuilder;
 
     #[test]
     fn test_report_json_simple_valid_case() {

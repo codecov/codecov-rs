@@ -555,9 +555,9 @@ mod tests {
     use winnow::error::AddContext;
 
     use super::*;
-    use crate::report::{
-        models::*,
-        test::{TestReport, TestReportBuilder},
+    use crate::{
+        report::models::*,
+        test_utils::test_report::{TestReport, TestReportBuilder},
     };
 
     type TestStream<'a> = ReportOutputStream<&'a str, TestReport, TestReportBuilder>;
