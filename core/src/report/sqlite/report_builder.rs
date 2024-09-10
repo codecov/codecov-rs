@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use rand::{rngs::StdRng, Rng, SeedableRng};
+use rand::Rng;
 use rusqlite::{Connection, Transaction};
 
 use super::{models::Insertable, open_database, SqliteReport};
@@ -21,7 +21,6 @@ use crate::{
 /// `build()` from moving it into a `SqliteReport`.
 pub struct SqliteReportBuilderTx<'a> {
     id_sequence: &'a mut RangeFrom<i64>,
-    rng: &'a mut StdRng,
 
     pub filename: &'a Path,
     pub conn: Transaction<'a>,
@@ -48,27 +47,16 @@ pub struct SqliteReportBuilder {
     /// A single sequence is shared for [`CoverageSample`], [`BranchesData`],
     /// [`MethodData`], and [`SpanData`].
     id_sequence: RangeFrom<i64>,
-
-    rng: StdRng,
 }
 
 impl SqliteReportBuilder {
-    fn new_with_rng(filename: PathBuf, rng: StdRng) -> Result<SqliteReportBuilder> {
+    pub fn new(filename: PathBuf) -> Result<SqliteReportBuilder> {
         let conn = open_database(&filename)?;
         Ok(SqliteReportBuilder {
             filename,
             conn,
             id_sequence: 0..,
-            rng,
         })
-    }
-
-    pub fn new_with_seed(filename: PathBuf, seed: u64) -> Result<SqliteReportBuilder> {
-        Self::new_with_rng(filename, StdRng::seed_from_u64(seed))
-    }
-
-    pub fn new(filename: PathBuf) -> Result<SqliteReportBuilder> {
-        Self::new_with_rng(filename, StdRng::from_entropy())
     }
 
     /// Create a [`SqliteReportBuilderTx`] with a [`rusqlite::Transaction`] that
@@ -81,7 +69,6 @@ impl SqliteReportBuilder {
             filename: &self.filename,
             conn: self.conn.transaction()?,
             id_sequence: &mut self.id_sequence,
-            rng: &mut self.rng,
         };
         builder_tx
             .conn
@@ -327,25 +314,8 @@ impl<'a> ReportBuilder<SqliteReport> for SqliteReportBuilderTx<'a> {
         &mut self,
         mut raw_upload: models::RawUpload,
     ) -> Result<models::RawUpload> {
-        let mut stmt = self.conn.prepare_cached("INSERT INTO raw_upload (id, timestamp, raw_upload_url, flags, provider, build, name, job_name, ci_run_url, state, env, session_type, session_extras) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)")?;
-
-        raw_upload.id = self.rng.gen();
-        let _ = stmt.execute((
-            &raw_upload.id,
-            &raw_upload.timestamp,
-            &raw_upload.raw_upload_url,
-            &raw_upload.flags.as_ref().map(|v| v.to_string()),
-            &raw_upload.provider,
-            &raw_upload.build,
-            &raw_upload.name,
-            &raw_upload.job_name,
-            &raw_upload.ci_run_url,
-            &raw_upload.state,
-            &raw_upload.env,
-            &raw_upload.session_type,
-            &raw_upload.session_extras.as_ref().map(|v| v.to_string()),
-        ))?;
-
+        raw_upload.id = rand::thread_rng().gen();
+        raw_upload.insert(&self.conn)?;
         Ok(raw_upload)
     }
 

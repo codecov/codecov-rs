@@ -12,7 +12,7 @@ testing = []
 include_dir = "0.7.3"
 memmap2 = "0.9.4"
 rand = "0.8.5"
-rusqlite = { version = "0.31.0", features = ["bundled", "limits"] }
+rusqlite = { version = "0.31.0", features = ["bundled", "limits", "serde_json"] }
 rusqlite_migration = { version = "1.2.0", features = ["from-directory"] }
 seahash = "4.1.0"
 serde = { version = "1.0.204", features = ["derive"] }

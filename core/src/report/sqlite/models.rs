@@ -449,6 +449,43 @@ impl Insertable for Context {
     }
 }
 
+impl Insertable for RawUpload {
+    const TABLE_NAME: &'static str = "raw_upload";
+    const FIELDS: &'static [&'static str] = &[
+        "id",
+        "timestamp",
+        "raw_upload_url",
+        "flags",
+        "provider",
+        "build",
+        "name",
+        "job_name",
+        "ci_run_url",
+        "state",
+        "env",
+        "session_type",
+        "session_extras",
+    ];
+
+    fn extend_params<'a>(&'a self, params: &mut Vec<&'a dyn rusqlite::ToSql>) {
+        params.extend(&[
+            &self.id as &dyn rusqlite::ToSql,
+            &self.timestamp as &dyn rusqlite::ToSql,
+            &self.raw_upload_url as &dyn rusqlite::ToSql,
+            &self.flags as &dyn rusqlite::ToSql,
+            &self.provider as &dyn rusqlite::ToSql,
+            &self.build as &dyn rusqlite::ToSql,
+            &self.name as &dyn rusqlite::ToSql,
+            &self.job_name as &dyn rusqlite::ToSql,
+            &self.ci_run_url as &dyn rusqlite::ToSql,
+            &self.state as &dyn rusqlite::ToSql,
+            &self.env as &dyn rusqlite::ToSql,
+            &self.session_type as &dyn rusqlite::ToSql,
+            &self.session_extras as &dyn rusqlite::ToSql,
+        ])
+    }
+}
+
 impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for RawUpload {
     type Error = rusqlite::Error;
 
@@ -516,6 +553,7 @@ impl<'a> std::convert::TryFrom<&'a rusqlite::Row<'a>> for ReportTotals {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
     use tempfile::TempDir;
 
     use super::{
@@ -895,6 +933,40 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "sqlite failure: 'UNIQUE constraint failed: span_data.raw_upload_id, span_data.local_span_id'"
+        );
+    }
+
+    #[test]
+    fn test_raw_upload_single_insert() {
+        let ctx = setup();
+
+        let model = RawUpload {
+            id: 5,
+            timestamp: Some(123),
+            raw_upload_url: Some("https://example.com".to_string()),
+            flags: Some(json!(["abc".to_string(), "def".to_string()])),
+            provider: Some("provider".to_string()),
+            build: Some("build".to_string()),
+            name: Some("name".to_string()),
+            job_name: Some("job name".to_string()),
+            ci_run_url: Some("https://example.com".to_string()),
+            state: Some("state".to_string()),
+            env: Some("env".to_string()),
+            session_type: Some("uploaded".to_string()),
+            session_extras: Some(json!({})),
+            ..Default::default()
+        };
+
+        model.insert(&ctx.report.conn).unwrap();
+        let duplicate_result = model.insert(&ctx.report.conn);
+
+        let uploads = ctx.report.list_raw_uploads().unwrap();
+        assert_eq!(uploads, vec![model]);
+
+        let error = duplicate_result.unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "sqlite failure: 'UNIQUE constraint failed: raw_upload.id'"
         );
     }
 }

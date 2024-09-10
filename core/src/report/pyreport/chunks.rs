@@ -319,7 +319,10 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::report::{sqlite::SqliteReportBuilder, ReportBuilder};
+    use crate::report::{
+        sqlite::{Insertable, SqliteReportBuilder},
+        ReportBuilder,
+    };
 
     struct Ctx {
         temp_dir: TempDir,
@@ -332,11 +335,12 @@ mod tests {
     }
 
     fn build_sample_report(path: PathBuf) -> Result<SqliteReport> {
-        let mut builder = SqliteReportBuilder::new_with_seed(path, 5)?;
+        let mut builder = SqliteReportBuilder::new(path)?;
         let file_1 = builder.insert_file("src/report/report.rs")?;
         let file_2 = builder.insert_file("src/report/models.rs")?;
 
-        let upload_1 = builder.insert_raw_upload(models::RawUpload {
+        let upload_1 = models::RawUpload {
+            id: 5,
             timestamp: Some(123),
             raw_upload_url: Some("upload 1 url".to_string()),
             flags: Some(json!(["flag on upload 1"])),
@@ -350,8 +354,13 @@ mod tests {
             session_type: Some("type upload 1".to_string()),
             session_extras: Some(json!({"k1": "v1"})),
             ..Default::default()
-        })?;
-        let upload_2 = builder.insert_raw_upload(models::RawUpload {
+        };
+        // Insert directly, not through report builder, because we don't want a random
+        // ID
+        upload_1.insert(&builder.conn)?;
+
+        let upload_2 = models::RawUpload {
+            id: 10,
             timestamp: Some(456),
             raw_upload_url: Some("upload 2 url".to_string()),
             flags: Some(json!(["flag on upload 2"])),
@@ -365,7 +374,10 @@ mod tests {
             session_type: Some("type upload 2".to_string()),
             session_extras: Some(json!({"k2": "v2"})),
             ..Default::default()
-        })?;
+        };
+        // Insert directly, not through report builder, because we don't want a random
+        // ID
+        upload_2.insert(&builder.conn)?;
 
         let line_1 = builder.insert_coverage_sample(models::CoverageSample {
             raw_upload_id: upload_1.id,
@@ -911,47 +923,47 @@ mod tests {
 
         let chunks_header = json!({"labels_index": {"1": "test-case", "2": "test-case 2"}});
         // line_1 variable in build_sample_report()
-        let file_1_header = json!({"present_sessions": [1]});
+        let file_1_header = json!({"present_sessions": [0]});
         let file_1_line_1 = json!([
             3,
             null,
-            [[1, 3]],
+            [[0, 3]],
             null,
             null,
-            [[1, 3, null, ["test-case", "test-case 2"]]]
+            [[0, 3, null, ["test-case", "test-case 2"]]]
         ]);
         // method_sample_1 variable in build_sample_report()
         let file_1_line_2 = json!([
             2,
             "m",
-            [[1, 2, null, null, [2, 4]]],
+            [[0, 2, null, null, [2, 4]]],
             null,
             [2, 4],
-            [[1, 2, "m", ["test-case 2"]]]
+            [[0, 2, "m", ["test-case 2"]]]
         ]);
         // branch_sample_1 variable in build_sample_report()
-        let file_1_line_3 = json!(["2/2", "b", [[1, "2/2"]]]);
+        let file_1_line_3 = json!(["2/2", "b", [[0, "2/2"]]]);
         // line_with_partial_1 variable in build_sample_report()
-        let file_1_line_8 = json!([3, null, [[1, 3, null, [[3, null, 3]]]]]);
+        let file_1_line_8 = json!([3, null, [[0, 3, null, [[3, null, 3]]]]]);
 
         let file_2_header = json!({"present_sessions": [0, 1]});
         // line_2 variable in build_sample_report()
         let file_2_line_1 = json!([
             4,
             null,
-            [[1, 4]],
+            [[0, 4]],
             null,
             null,
-            [[1, 4, null, ["test-case", "test-case 2"]]]
+            [[0, 4, null, ["test-case", "test-case 2"]]]
         ]);
         // method_sample_2 variable in build_sample_report()
-        let file_2_line_2 = json!([5, "m", [[1, 5]]]);
+        let file_2_line_2 = json!([5, "m", [[0, 5]]]);
         // line_3 variable in build_sample_report()
-        let file_2_line_3 = json!([0, null, [[0, 0]],]);
+        let file_2_line_3 = json!([0, null, [[1, 0]],]);
         // method_sample_3 variable in build_sample_report()
-        let file_2_line_5 = json!([0, "m", [[0, 0, null, null, [2, 4]]], null, [2, 4]]);
+        let file_2_line_5 = json!([0, "m", [[1, 0, null, null, [2, 4]]], null, [2, 4]]);
         // branch_sample_2 variable in build_sample_report()
-        let file_2_line_6 = json!(["2/4", "b", [[1, "2/4", ["2", "3"]]],]);
+        let file_2_line_6 = json!(["2/4", "b", [[0, "2/4", ["2", "3"]]],]);
 
         let expected = format!(
             "{chunks_header}

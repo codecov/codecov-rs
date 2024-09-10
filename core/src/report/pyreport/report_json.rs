@@ -243,7 +243,10 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::report::{sqlite::SqliteReportBuilder, ReportBuilder};
+    use crate::report::{
+        sqlite::{Insertable, SqliteReportBuilder},
+        ReportBuilder,
+    };
 
     struct Ctx {
         temp_dir: TempDir,
@@ -256,11 +259,12 @@ mod tests {
     }
 
     fn build_sample_report(path: PathBuf) -> Result<SqliteReport> {
-        let mut builder = SqliteReportBuilder::new_with_seed(path, 5)?;
+        let mut builder = SqliteReportBuilder::new(path)?;
         let file_1 = builder.insert_file("src/report/report.rs")?;
         let file_2 = builder.insert_file("src/report/models.rs")?;
 
-        let upload_1 = builder.insert_raw_upload(models::RawUpload {
+        let upload_1 = models::RawUpload {
+            id: 5,
             timestamp: Some(123),
             raw_upload_url: Some("upload 1 url".to_string()),
             flags: Some(json!(["flag on upload 1"])),
@@ -274,8 +278,13 @@ mod tests {
             session_type: Some("type upload 1".to_string()),
             session_extras: Some(json!({"k1": "v1"})),
             ..Default::default()
-        })?;
-        let upload_2 = builder.insert_raw_upload(models::RawUpload {
+        };
+        // Insert directly, not through report builder, because we don't want a random
+        // ID
+        upload_1.insert(&builder.conn)?;
+
+        let upload_2 = models::RawUpload {
+            id: 10,
             timestamp: Some(456),
             raw_upload_url: Some("upload 2 url".to_string()),
             flags: Some(json!(["flag on upload 2"])),
@@ -289,7 +298,10 @@ mod tests {
             session_type: Some("type upload 2".to_string()),
             session_extras: Some(json!({"k2": "v2"})),
             ..Default::default()
-        })?;
+        };
+        // Insert directly, not through report builder, because we don't want a random
+        // ID
+        upload_2.insert(&builder.conn)?;
 
         let line_1 = builder.insert_coverage_sample(models::CoverageSample {
             raw_upload_id: upload_1.id,
@@ -573,35 +585,6 @@ mod tests {
             "sessions": {
                 "0": {
                     "t": [
-                        1,      // file count
-                        2,      // line count
-                        0,      // hits
-                        2,      // misses
-                        0,      // partials
-                        "0",    // coverage %
-                        0,      // branch count
-                        1,      // method count
-                        0,      // messages
-                        0,      // sessions
-                        2,      // hit_complexity_paths
-                        4,      // total_complexity
-                        0       // diff
-                    ],
-                    "d": 456,
-                    "a": "upload 2 url",
-                    "f": ["flag on upload 2"],
-                    "c": "provider upload 2",
-                    "n": "build upload 2",
-                    "N": "name upload 2",
-                    "j": "job name upload 2",
-                    "u": "ci run url upload 2",
-                    "p": "state upload 2",
-                    "e": "env upload 2",
-                    "st": "type upload 2",
-                    "se": {"k2": "v2"},
-                },
-                "1": {
-                    "t": [
                         2,              // file count
                         7,              // line count
                         6,              // hits
@@ -628,6 +611,35 @@ mod tests {
                     "e": "env upload 1",
                     "st": "type upload 1",
                     "se": {"k1": "v1"},
+                },
+                "1": {
+                    "t": [
+                        1,      // file count
+                        2,      // line count
+                        0,      // hits
+                        2,      // misses
+                        0,      // partials
+                        "0",    // coverage %
+                        0,      // branch count
+                        1,      // method count
+                        0,      // messages
+                        0,      // sessions
+                        2,      // hit_complexity_paths
+                        4,      // total_complexity
+                        0       // diff
+                    ],
+                    "d": 456,
+                    "a": "upload 2 url",
+                    "f": ["flag on upload 2"],
+                    "c": "provider upload 2",
+                    "n": "build upload 2",
+                    "N": "name upload 2",
+                    "j": "job name upload 2",
+                    "u": "ci run url upload 2",
+                    "p": "state upload 2",
+                    "e": "env upload 2",
+                    "st": "type upload 2",
+                    "se": {"k2": "v2"},
                 }
             }
         });
@@ -663,21 +675,6 @@ mod tests {
             },
             "sessions": {
                 "0": {
-                    "t": [1, 2, 0, 2, 0, "0", 0, 1, 0, 0, 2, 4, 0],
-                    "d": 456,
-                    "a": "upload 2 url",
-                    "f": ["flag on upload 2"],
-                    "c": "provider upload 2",
-                    "n": "build upload 2",
-                    "N": "name upload 2",
-                    "j": "job name upload 2",
-                    "u": "ci run url upload 2",
-                    "p": "state upload 2",
-                    "e": "env upload 2",
-                    "st": "type upload 2",
-                    "se": {"k2": "v2"},
-                },
-                "1": {
                     "t": [2, 7, 6, 0, 1, "85.71429", 2, 2, 0, 0, 2, 4, 0],
                     "d": 123,
                     "a": "upload 1 url",
@@ -691,6 +688,21 @@ mod tests {
                     "e": "env upload 1",
                     "st": "type upload 1",
                     "se": {"k1": "v1"},
+                },
+                "1": {
+                    "t": [1, 2, 0, 2, 0, "0", 0, 1, 0, 0, 2, 4, 0],
+                    "d": 456,
+                    "a": "upload 2 url",
+                    "f": ["flag on upload 2"],
+                    "c": "provider upload 2",
+                    "n": "build upload 2",
+                    "N": "name upload 2",
+                    "j": "job name upload 2",
+                    "u": "ci run url upload 2",
+                    "p": "state upload 2",
+                    "e": "env upload 2",
+                    "st": "type upload 2",
+                    "se": {"k2": "v2"},
                 }
             }
         });
