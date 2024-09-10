@@ -1,11 +1,13 @@
-use super::{
-    models::{
-        BranchesData, Context, ContextAssoc, CoverageSample, MethodData, RawUpload, SourceFile,
-        SpanData,
+use crate::{
+    error,
+    report::{
+        models::{
+            BranchesData, Context, ContextAssoc, CoverageSample, MethodData, RawUpload,
+            ReportTotals, SourceFile, SpanData,
+        },
+        Report, ReportBuilder,
     },
-    Report, ReportBuilder,
 };
-use crate::error;
 
 #[derive(Default)]
 pub struct TestReport {
@@ -68,7 +70,7 @@ impl Report for TestReport {
         todo!()
     }
 
-    fn totals(&self) -> error::Result<super::models::ReportTotals> {
+    fn totals(&self) -> error::Result<ReportTotals> {
         todo!()
     }
 }
@@ -143,18 +145,12 @@ impl ReportBuilder<TestReport> for TestReportBuilder {
         Ok(())
     }
 
-    fn associate_context(
-        &mut self,
-        assoc: super::models::ContextAssoc,
-    ) -> error::Result<super::models::ContextAssoc> {
+    fn associate_context(&mut self, assoc: ContextAssoc) -> error::Result<ContextAssoc> {
         self.report.assocs.push(assoc.clone());
         Ok(assoc)
     }
 
-    fn multi_associate_context(
-        &mut self,
-        assocs: Vec<&mut super::models::ContextAssoc>,
-    ) -> error::Result<()> {
+    fn multi_associate_context(&mut self, assocs: Vec<&mut ContextAssoc>) -> error::Result<()> {
         self.report
             .assocs
             .extend(assocs.into_iter().map(|m| m.clone()));

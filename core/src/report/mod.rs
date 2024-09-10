@@ -6,9 +6,6 @@ pub use sqlite::{SqliteReport, SqliteReportBuilder, SqliteReportBuilderTx};
 #[cfg(feature = "pyreport")]
 pub mod pyreport;
 
-#[cfg(any(test, feature = "testing"))]
-pub mod test;
-
 use crate::error::Result;
 
 /// An interface for coverage data.

@@ -312,7 +312,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::report::test::{TestReport, TestReportBuilder};
+    use crate::test_utils::test_report::{TestReport, TestReportBuilder};
 
     struct Ctx {
         parse_ctx: ParseCtx<TestReport, TestReportBuilder>,
