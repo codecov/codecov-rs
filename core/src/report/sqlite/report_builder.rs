@@ -50,7 +50,7 @@ pub struct SqliteReportBuilder {
 }
 
 impl SqliteReportBuilder {
-    pub fn new(filename: PathBuf) -> Result<SqliteReportBuilder> {
+    pub fn open(filename: PathBuf) -> Result<SqliteReportBuilder> {
         let conn = open_database(&filename)?;
         Ok(SqliteReportBuilder {
             filename,
@@ -155,7 +155,7 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
     /// # let temp_dir = tempdir().unwrap();
     /// # let db_file = temp_dir.path().join("test.db");
     ///
-    /// let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+    /// let mut report_builder = SqliteReportBuilder::open(db_file).unwrap();
     ///
     /// let mut tx = report_builder.transaction().unwrap();
     /// let _ = tx.insert_file("foo.rs");
@@ -173,7 +173,7 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
     /// # let temp_dir = tempdir().unwrap();
     /// # let db_file = temp_dir.path().join("test.db");
     ///
-    /// let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+    /// let mut report_builder = SqliteReportBuilder::open(db_file).unwrap();
     ///
     /// // `tx` will go out of scope at the end of this block
     /// {
@@ -194,7 +194,7 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
     /// # let temp_dir = tempdir().unwrap();
     /// # let db_file = temp_dir.path().join("test.db");
     ///
-    /// let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+    /// let mut report_builder = SqliteReportBuilder::open(db_file).unwrap();
     ///
     /// let mut tx = report_builder.transaction().unwrap();
     /// let _ = tx.insert_file("foo.rs");
@@ -348,12 +348,12 @@ mod tests {
     }
 
     #[test]
-    fn test_new_report_builder_runs_migrations() {
+    fn test_open_report_builder_runs_migrations() {
         let ctx = setup();
         let db_file = ctx.temp_dir.path().join("db.sqlite");
         assert!(!db_file.exists());
 
-        let report_builder = SqliteReportBuilder::new(db_file).unwrap();
+        let report_builder = SqliteReportBuilder::open(db_file).unwrap();
         assert_eq!(
             super::super::MIGRATIONS.current_version(&report_builder.conn),
             Ok(SchemaVersion::Inside(NonZeroUsize::new(1).unwrap()))
@@ -364,7 +364,7 @@ mod tests {
     fn test_insert_file() {
         let ctx = setup();
         let db_file = ctx.temp_dir.path().join("db.sqlite");
-        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+        let mut report_builder = SqliteReportBuilder::open(db_file).unwrap();
 
         let expected_file = models::SourceFile::new("src/report.rs");
         let actual_file = report_builder.insert_file(&expected_file.path).unwrap();
@@ -381,7 +381,7 @@ mod tests {
     fn test_insert_context() {
         let ctx = setup();
         let db_file = ctx.temp_dir.path().join("db.sqlite");
-        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+        let mut report_builder = SqliteReportBuilder::open(db_file).unwrap();
 
         let expected_context = models::Context::new("foo");
         let actual_context = report_builder.insert_context("foo").unwrap();
@@ -398,7 +398,7 @@ mod tests {
     fn test_insert_coverage_sample() {
         let ctx = setup();
         let db_file = ctx.temp_dir.path().join("db.sqlite");
-        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+        let mut report_builder = SqliteReportBuilder::open(db_file).unwrap();
 
         let file = report_builder.insert_file("src/report.rs").unwrap();
         let raw_upload = report_builder
@@ -443,7 +443,7 @@ mod tests {
     fn test_multi_insert_coverage_sample() {
         let ctx = setup();
         let db_file = ctx.temp_dir.path().join("db.sqlite");
-        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+        let mut report_builder = SqliteReportBuilder::open(db_file).unwrap();
 
         let file = report_builder.insert_file("src/report.rs").unwrap();
         let raw_upload = report_builder
@@ -505,7 +505,7 @@ mod tests {
     fn test_insert_branches_data() {
         let ctx = setup();
         let db_file = ctx.temp_dir.path().join("db.sqlite");
-        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+        let mut report_builder = SqliteReportBuilder::open(db_file).unwrap();
 
         let file = report_builder.insert_file("src/report.rs").unwrap();
         let raw_upload = report_builder
@@ -561,7 +561,7 @@ mod tests {
     fn test_multi_insert_branches_data() {
         let ctx = setup();
         let db_file = ctx.temp_dir.path().join("db.sqlite");
-        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+        let mut report_builder = SqliteReportBuilder::open(db_file).unwrap();
 
         let file = report_builder.insert_file("src/report.rs").unwrap();
         let raw_upload = report_builder
@@ -636,7 +636,7 @@ mod tests {
     fn test_insert_method_data() {
         let ctx = setup();
         let db_file = ctx.temp_dir.path().join("db.sqlite");
-        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+        let mut report_builder = SqliteReportBuilder::open(db_file).unwrap();
 
         let file = report_builder.insert_file("src/report.rs").unwrap();
 
@@ -696,7 +696,7 @@ mod tests {
     fn test_multi_insert_method_data() {
         let ctx = setup();
         let db_file = ctx.temp_dir.path().join("db.sqlite");
-        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+        let mut report_builder = SqliteReportBuilder::open(db_file).unwrap();
 
         let file = report_builder.insert_file("src/report.rs").unwrap();
         let raw_upload = report_builder
@@ -764,7 +764,7 @@ mod tests {
     fn test_insert_span_data() {
         let ctx = setup();
         let db_file = ctx.temp_dir.path().join("db.sqlite");
-        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+        let mut report_builder = SqliteReportBuilder::open(db_file).unwrap();
 
         let file = report_builder.insert_file("src/report.rs").unwrap();
         let raw_upload = report_builder
@@ -816,7 +816,7 @@ mod tests {
     fn test_multi_insert_span_data() {
         let ctx = setup();
         let db_file = ctx.temp_dir.path().join("db.sqlite");
-        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+        let mut report_builder = SqliteReportBuilder::open(db_file).unwrap();
 
         let file = report_builder.insert_file("src/report.rs").unwrap();
         let raw_upload = report_builder
@@ -891,7 +891,7 @@ mod tests {
     fn test_insert_context_assoc() {
         let ctx = setup();
         let db_file = ctx.temp_dir.path().join("db.sqlite");
-        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+        let mut report_builder = SqliteReportBuilder::open(db_file).unwrap();
 
         let file = report_builder.insert_file("src/report.rs").unwrap();
 
@@ -954,7 +954,7 @@ mod tests {
     fn test_multi_associate_context() {
         let ctx = setup();
         let db_file = ctx.temp_dir.path().join("db.sqlite");
-        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+        let mut report_builder = SqliteReportBuilder::open(db_file).unwrap();
 
         let file = report_builder.insert_file("src/report.rs").unwrap();
         let raw_upload = report_builder
@@ -998,7 +998,7 @@ mod tests {
     fn test_insert_raw_upload() {
         let ctx = setup();
         let db_file = ctx.temp_dir.path().join("db.sqlite");
-        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+        let mut report_builder = SqliteReportBuilder::open(db_file).unwrap();
 
         let inserted_upload = models::RawUpload {
             timestamp: Some(123),
@@ -1026,7 +1026,7 @@ mod tests {
     fn test_transaction_drop_behavior() {
         let ctx = setup();
         let db_file = ctx.temp_dir.path().join("db.sqlite");
-        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+        let mut report_builder = SqliteReportBuilder::open(db_file).unwrap();
 
         let tx = report_builder.transaction().unwrap();
         assert_eq!(tx.conn.drop_behavior(), rusqlite::DropBehavior::Commit);
@@ -1036,7 +1036,7 @@ mod tests {
     fn test_transaction_cannot_build() {
         let ctx = setup();
         let db_file = ctx.temp_dir.path().join("db.sqlite");
-        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+        let mut report_builder = SqliteReportBuilder::open(db_file).unwrap();
 
         let tx = report_builder.transaction().unwrap();
 
@@ -1050,7 +1050,7 @@ mod tests {
     fn test_transaction_rollback() {
         let ctx = setup();
         let db_file = ctx.temp_dir.path().join("db.sqlite");
-        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+        let mut report_builder = SqliteReportBuilder::open(db_file).unwrap();
 
         let mut tx = report_builder.transaction().unwrap();
         tx.insert_file("foo.rs").unwrap();

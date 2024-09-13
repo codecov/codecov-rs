@@ -35,7 +35,7 @@ fn test_parse_report_json() {
     let input = read_fixture(Pyreport, Small, "codecov-rs-reports-json-d2a9ba1.txt").unwrap();
 
     let test_ctx = setup();
-    let mut report_builder = SqliteReportBuilder::new(test_ctx.db_file).unwrap();
+    let mut report_builder = SqliteReportBuilder::open(test_ctx.db_file).unwrap();
 
     let ParsedReportJson {
         files: file_id_map,
@@ -95,7 +95,7 @@ fn test_parse_chunks_file() {
     let input = std::str::from_utf8(&input).unwrap();
     let test_ctx = setup();
 
-    let mut report_builder = SqliteReportBuilder::new(test_ctx.db_file).unwrap();
+    let mut report_builder = SqliteReportBuilder::open(test_ctx.db_file).unwrap();
 
     // Pretend `parse_report_json` has already run
     let mut report_json_files = HashMap::new();

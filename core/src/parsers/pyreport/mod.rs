@@ -40,7 +40,7 @@ pub fn parse_pyreport(
     chunks_file: &File,
     out_path: PathBuf,
 ) -> Result<SqliteReport> {
-    let mut report_builder = SqliteReportBuilder::new(out_path)?;
+    let mut report_builder = SqliteReportBuilder::open(out_path)?;
     // Encapsulate all of this in a block so that `report_builder_tx` gets torn down
     // at the end. Otherwise, it'll hold onto a reference to `report_builder`
     // and prevent us from consuming `report_builder` to actually build a
