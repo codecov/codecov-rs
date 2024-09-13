@@ -1,0 +1,6 @@
+class SqliteReportBuilder:
+    @staticmethod
+    def from_pyreport(
+        report_json_filepath: str, chunks_filepath: str, out_filepath: str
+    ) -> SqliteReportBuilder: ...
+    def filepath(self) -> str: ...
