@@ -10,7 +10,7 @@ Supported formats include:
 - `codecov-rs`'s SQLite format described in `src/report/models.rs`
 - Codecov's Python report implementation ("pyreport")
 
-See `src/parsers` or the list of features in `Cargo.toml` for a complete list. All formats are converted to `codecov-rs`'s SQLite format ([inspired by `coverage.py`](https://coverage.readthedocs.io/en/latest/dbschema.html)) and converting back is generally not a goal (pyreport being the exception).
+See `core/src/parsers` or the list of features in `core/Cargo.toml` for a complete list. All formats are converted to `codecov-rs`'s SQLite format ([inspired by `coverage.py`](https://coverage.readthedocs.io/en/latest/dbschema.html)) and converting back is generally not a goal (pyreport being the exception).
 
 All details (e.g. SQLite schema, code interfaces) subject to breaking changes until further notice. In the future, we will at least use SQLite's [`schema_version` pragma](https://www.sqlite.org/pragma.html#pragma_schema_version) to attempt backwards compatibility.
 
@@ -18,16 +18,16 @@ All details (e.g. SQLite schema, code interfaces) subject to breaking changes un
 
 Set up your development environment:
 - Install the nightly compiler via [rustup](https://rustup.rs/). At time of writing, `codecov-rs` requires the nightly compiler for niceties such as `#[feature(trait_alias)]`.
-- To work on the Python bindings, set up a virtualenv with your tool of choice and install our Python dependencies: `pip install -r python/requirements.dev.txt`.
+- To work on the Python bindings, run `source .envrc` (or use `direnv`) to set up a virtual environment. Update development dependencies with `pip install -r python/requirements.dev.txt`
 - Install lint hooks with `pip install pre-commit && pre-commit install`.
-- Large sample test reports are checked in using [Git LFS](https://git-lfs.com/) in `core/fixtures/**/large` directories (e.g. `core/fixtures/pyreport/large`). Tests and benchmarks may reference them so installing it yourself is recommended.
+- Large sample test reports are checked in using [Git LFS](https://git-lfs.com/) in `test_utils/fixtures/**/large` directories (e.g. `test_utils/fixtures/pyreport/large`). Tests and benchmarks may reference them so installing it yourself is recommended.
 
 `codecov-rs` aims to serve as effective documentation for every flavor of every format it supports. To that end, the following are greatly appreciated in submissions:
 - Thorough doc comments (`///` / `/**`). For parsers, include snippets that show what inputs look like
 - Granular, in-module unit tests
 - Integration tests with real-world samples (that are safe to distribute; don't send us data from your private repo)
 
-The `examples/` directory contains runnable commands for developers including:
+The `core/examples/` directory contains runnable commands for developers including:
 - `parse_pyreport`: converts a given pyreport into a SQLite report
 - `sql_to_pyreport`: converts a given SQLite report into a pyreport (report JSON + chunks file)
 
@@ -37,8 +37,12 @@ You can run an example with `cargo run --example <example> <arguments>`. Conside
 
 - `core/`: Rust crate with all of the core coverage-processing functionality
 - `bindings/`: Rust crate with PyO3 bindings for `core/`
+- `test_utils/`: Rust crate with utilities for Rust tests and sample data for any tests
+  - `test_utils/fixtures`: Checked-in sampled data. Large samples are checked in with Git LFS
 - `python/codecov_rs`: Python code using/typing the Rust crate in `bindings/`
 - `python/tests`: Python tests
+
+`Cargo.toml` in the root defines a Cargo workspace. `pyproject.toml` in the root defines our Python package. Development dependencies for the Python code are in `python/requirements.dev.txt`.
 
 ### Writing new parsers
 
