@@ -35,7 +35,7 @@ fn test_parse_report_json() {
     let input = read_fixture(Pyreport, Small, "codecov-rs-reports-json-d2a9ba1.txt").unwrap();
 
     let test_ctx = setup();
-    let mut report_builder = SqliteReportBuilder::new(test_ctx.db_file).unwrap();
+    let mut report_builder = SqliteReportBuilder::open(test_ctx.db_file).unwrap();
 
     let ParsedReportJson {
         files: file_id_map,
@@ -95,7 +95,7 @@ fn test_parse_chunks_file() {
     let input = std::str::from_utf8(&input).unwrap();
     let test_ctx = setup();
 
-    let mut report_builder = SqliteReportBuilder::new(test_ctx.db_file).unwrap();
+    let mut report_builder = SqliteReportBuilder::open(test_ctx.db_file).unwrap();
 
     // Pretend `parse_report_json` has already run
     let mut report_json_files = HashMap::new();
@@ -208,8 +208,10 @@ fn test_parse_pyreport() {
     let chunks_file = open_fixture(Pyreport, Small, "codecov-rs-chunks-d2a9ba1.txt").unwrap();
     let test_ctx = setup();
 
-    let report = pyreport::parse_pyreport(&report_json_file, &chunks_file, test_ctx.db_file)
+    let mut report_builder = SqliteReportBuilder::open(test_ctx.db_file).unwrap();
+    pyreport::parse_pyreport(&report_json_file, &chunks_file, &mut report_builder)
         .expect("Failed to parse pyreport");
+    let report = report_builder.build().unwrap();
 
     let expected_files = [
         models::SourceFile::new("src/report.rs"),
@@ -308,12 +310,14 @@ fn test_sql_to_pyreport_to_sql_totals_match() {
     let chunks_input_file = open_fixture(Pyreport, Small, "codecov-rs-chunks-d2a9ba1.txt").unwrap();
     let test_ctx = setup();
 
-    let report = pyreport::parse_pyreport(
+    let mut report_builder = SqliteReportBuilder::open(test_ctx.db_file).unwrap();
+    pyreport::parse_pyreport(
         &report_json_input_file,
         &chunks_input_file,
-        test_ctx.db_file,
+        &mut report_builder,
     )
     .expect("Failed to parse pyreport");
+    let report = report_builder.build().unwrap();
 
     let report_json_output_path = test_ctx.temp_dir.path().join("report_json.json");
     let chunks_output_path = test_ctx.temp_dir.path().join("chunks.txt");
@@ -342,12 +346,14 @@ fn test_sql_to_pyreport_to_sql_totals_match() {
     chunks_output_file.rewind().unwrap();
 
     let roundtrip_db_path = test_ctx.temp_dir.path().join("roundtrip.sqlite");
-    let report = pyreport::parse_pyreport(
+    let mut report_builder = SqliteReportBuilder::open(roundtrip_db_path).unwrap();
+    pyreport::parse_pyreport(
         &report_json_output_file,
         &chunks_output_file,
-        roundtrip_db_path,
+        &mut report_builder,
     )
     .expect("Failed to parse roundtrip report");
+    let report = report_builder.build().unwrap();
     let roundtrip_totals = report.totals().unwrap();
 
     assert_eq!(original_totals, roundtrip_totals);

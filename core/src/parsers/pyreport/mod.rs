@@ -1,11 +1,11 @@
-use std::{fs::File, path::PathBuf};
+use std::fs::File;
 
 use memmap2::Mmap;
 use winnow::Parser;
 
 use crate::{
     error::{CodecovError, Result},
-    report::{ReportBuilder, SqliteReport, SqliteReportBuilder, SqliteReportBuilderTx},
+    report::{SqliteReport, SqliteReportBuilder, SqliteReportBuilderTx},
 };
 
 pub mod report_json;
@@ -38,9 +38,8 @@ mod utils;
 pub fn parse_pyreport(
     report_json_file: &File,
     chunks_file: &File,
-    out_path: PathBuf,
-) -> Result<SqliteReport> {
-    let mut report_builder = SqliteReportBuilder::new(out_path)?;
+    report_builder: &mut SqliteReportBuilder,
+) -> Result<()> {
     // Encapsulate all of this in a block so that `report_builder_tx` gets torn down
     // at the end. Otherwise, it'll hold onto a reference to `report_builder`
     // and prevent us from consuming `report_builder` to actually build a
@@ -69,6 +68,6 @@ pub fn parse_pyreport(
             .map_err(|e| e.into_inner().unwrap_or_default())
             .map_err(CodecovError::ParserError)?;
     }
-    // Build and return the `SqliteReport`
-    report_builder.build()
+
+    Ok(())
 }

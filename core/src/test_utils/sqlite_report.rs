@@ -8,7 +8,7 @@ use crate::{
 };
 
 pub fn build_sample_report(path: PathBuf) -> Result<SqliteReport> {
-    let mut builder = SqliteReportBuilder::new(path)?;
+    let mut builder = SqliteReportBuilder::open(path)?;
     let file_1 = builder.insert_file("src/report/report.rs")?;
     let file_2 = builder.insert_file("src/report/models.rs")?;
 
