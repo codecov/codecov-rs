@@ -347,7 +347,7 @@ mod tests {
     fn test_build_datapoint_from_row() {
         let ctx = setup();
         let db_path = ctx.temp_dir.path().join("test.db");
-        let report = SqliteReport::new(db_path).unwrap();
+        let report = SqliteReport::open(db_path).unwrap();
 
         let test_cases: &[(&[&dyn rusqlite::ToSql], Option<JsonVal>)] = &[
             (
@@ -415,7 +415,7 @@ mod tests {
     fn test_build_line_session_from_row() {
         let ctx = setup();
         let db_path = ctx.temp_dir.path().join("test.db");
-        let report = SqliteReport::new(db_path).unwrap();
+        let report = SqliteReport::open(db_path).unwrap();
 
         let test_cases: &[(&[&dyn rusqlite::ToSql], JsonVal)] = &[
             (
@@ -502,7 +502,7 @@ mod tests {
     fn test_build_report_line_from_row() {
         let ctx = setup();
         let db_path = ctx.temp_dir.path().join("test.db");
-        let report = SqliteReport::new(db_path).unwrap();
+        let report = SqliteReport::open(db_path).unwrap();
 
         let test_cases = &[
             (
@@ -645,7 +645,7 @@ mod tests {
             json!({"labels_index": {"1": "test-case", "2": "test-case 2"}})
         );
 
-        let empty_report = SqliteReport::new(ctx.temp_dir.path().join("empty.db")).unwrap();
+        let empty_report = SqliteReport::open(ctx.temp_dir.path().join("empty.db")).unwrap();
         assert_eq!(query_chunks_file_header(&empty_report).unwrap(), json!({}),);
     }
 

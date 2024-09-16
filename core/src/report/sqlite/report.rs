@@ -20,7 +20,7 @@ impl fmt::Debug for SqliteReport {
 }
 
 impl SqliteReport {
-    pub fn new(filename: PathBuf) -> Result<SqliteReport> {
+    pub fn open(filename: PathBuf) -> Result<SqliteReport> {
         let conn = open_database(&filename)?;
         Ok(SqliteReport { filename, conn })
     }
@@ -196,12 +196,12 @@ mod tests {
     }
 
     #[test]
-    fn test_new_report_runs_migrations() {
+    fn test_open_report_runs_migrations() {
         let ctx = setup();
         let db_file = ctx.temp_dir.path().join("db.sqlite");
         assert!(!db_file.exists());
 
-        let report = SqliteReport::new(db_file).unwrap();
+        let report = SqliteReport::open(db_file).unwrap();
         assert_eq!(
             super::super::MIGRATIONS.current_version(&report.conn),
             Ok(SchemaVersion::Inside(NonZeroUsize::new(1).unwrap()))
@@ -214,7 +214,7 @@ mod tests {
         let db_file_left = ctx.temp_dir.path().join("left.sqlite");
         let db_file_right = ctx.temp_dir.path().join("right.sqlite");
 
-        let mut left_report_builder = SqliteReportBuilder::new(db_file_left).unwrap();
+        let mut left_report_builder = SqliteReportBuilder::open(db_file_left).unwrap();
         let file_1 = left_report_builder.insert_file("src/report.rs").unwrap();
         let file_2 = left_report_builder
             .insert_file("src/report/models.rs")
@@ -262,7 +262,7 @@ mod tests {
             });
         }
 
-        let mut right_report_builder = SqliteReportBuilder::new(db_file_right).unwrap();
+        let mut right_report_builder = SqliteReportBuilder::open(db_file_right).unwrap();
         let file_2 = right_report_builder
             .insert_file("src/report/models.rs")
             .unwrap();
@@ -367,7 +367,7 @@ mod tests {
         let ctx = setup();
         let db_file = ctx.temp_dir.path().join("db.sqlite");
         assert!(!db_file.exists());
-        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+        let mut report_builder = SqliteReportBuilder::open(db_file).unwrap();
 
         let file_1 = report_builder.insert_file("src/report.rs").unwrap();
         let file_2 = report_builder.insert_file("src/report/models.rs").unwrap();

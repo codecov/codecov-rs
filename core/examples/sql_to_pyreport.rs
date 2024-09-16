@@ -27,7 +27,7 @@ pub fn main() -> Result<()> {
     }
 
     let sqlite_path = &args[1];
-    let report = SqliteReport::new(sqlite_path.into())?;
+    let report = SqliteReport::open(sqlite_path.into())?;
 
     let mut report_json_file = File::create(&args[2])?;
     let mut chunks_file = File::create(&args[3])?;

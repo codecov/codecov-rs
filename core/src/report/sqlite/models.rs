@@ -613,7 +613,7 @@ mod tests {
     fn setup() -> Ctx {
         let temp_dir = TempDir::new().ok().unwrap();
         let db_file = temp_dir.path().join("db.sqlite");
-        let report = SqliteReport::new(db_file).unwrap();
+        let report = SqliteReport::open(db_file).unwrap();
 
         report
             .conn
@@ -730,7 +730,7 @@ mod tests {
     fn test_context_assoc_single_insert() {
         let ctx = setup();
         let db_file = ctx.temp_dir.path().join("db.sqlite");
-        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+        let mut report_builder = SqliteReportBuilder::open(db_file).unwrap();
 
         let raw_upload = report_builder
             .insert_raw_upload(Default::default())
@@ -771,7 +771,7 @@ mod tests {
     fn test_coverage_sample_single_insert() {
         let ctx = setup();
         let db_file = ctx.temp_dir.path().join("db.sqlite");
-        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+        let mut report_builder = SqliteReportBuilder::open(db_file).unwrap();
 
         let source_file = report_builder.insert_file("foo.rs").unwrap();
         let raw_upload = report_builder
@@ -804,7 +804,7 @@ mod tests {
     fn test_branches_data_single_insert() {
         let ctx = setup();
         let db_file = ctx.temp_dir.path().join("db.sqlite");
-        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+        let mut report_builder = SqliteReportBuilder::open(db_file).unwrap();
 
         let source_file = report_builder.insert_file("path").unwrap();
         let raw_upload = report_builder
@@ -854,7 +854,7 @@ mod tests {
     fn test_method_data_single_insert() {
         let ctx = setup();
         let db_file = ctx.temp_dir.path().join("db.sqlite");
-        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+        let mut report_builder = SqliteReportBuilder::open(db_file).unwrap();
 
         let source_file = report_builder.insert_file("foo.rs").unwrap();
         let raw_upload = report_builder
@@ -901,7 +901,7 @@ mod tests {
     fn test_span_data_single_insert() {
         let ctx = setup();
         let db_file = ctx.temp_dir.path().join("db.sqlite");
-        let mut report_builder = SqliteReportBuilder::new(db_file).unwrap();
+        let mut report_builder = SqliteReportBuilder::open(db_file).unwrap();
 
         let source_file = report_builder.insert_file("foo.rs").unwrap();
         let raw_upload = report_builder

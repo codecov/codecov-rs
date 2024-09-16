@@ -466,7 +466,7 @@ mod tests {
 
         assert_eq!(report_json, expected);
 
-        let empty_report = SqliteReport::new(ctx.temp_dir.path().join("empty.db")).unwrap();
+        let empty_report = SqliteReport::open(ctx.temp_dir.path().join("empty.db")).unwrap();
 
         let mut report_output = Vec::new();
         sql_to_report_json(&empty_report, &mut report_output).unwrap();
