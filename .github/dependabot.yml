@@ -1,0 +1,10 @@
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/" # pyproject.toml in root
+    schedule:
+      interval: "daily"
+  - package-ecosystem: "cargo"
+    directory: "/" # Cargo.toml workspace in root
+    schedule:
+      interval: "daily"
