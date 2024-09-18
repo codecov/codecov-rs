@@ -3,8 +3,12 @@ updates:
   - package-ecosystem: "pip"
     directory: "/" # pyproject.toml in root
     schedule:
-      interval: "daily"
+      interval: "weekly"
+      day: "sunday"
+    open-pull-requests-limit: 0 # Security updates only
   - package-ecosystem: "cargo"
     directory: "/" # Cargo.toml workspace in root
     schedule:
-      interval: "daily"
+      interval: "weekly"
+      day: "sunday"
+    open-pull-requests-limit: 0 # Security updates only
