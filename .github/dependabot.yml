@@ -4,7 +4,9 @@ updates:
     directory: "/" # pyproject.toml in root
     schedule:
       interval: "daily"
+    open-pull-requests-limit: 0 # Security updates only
   - package-ecosystem: "cargo"
     directory: "/" # Cargo.toml workspace in root
     schedule:
       interval: "daily"
+    open-pull-requests-limit: 0 # Security updates only
