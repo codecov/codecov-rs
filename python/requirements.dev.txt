@@ -1,6 +1,6 @@
 maturin==1.7.1
 mypy==1.11.2
-pydantic==2.8.2
+pydantic==2.9.2
 pytest==8.3.2
 pytest-cov==5.0.0
 ruff==0.6.2
