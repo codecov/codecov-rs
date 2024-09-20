@@ -10,13 +10,13 @@ testing = []
 
 [dependencies]
 include_dir = "0.7.3"
-memmap2 = "0.9.4"
+memmap2 = "0.9.5"
 rand = "0.8.5"
 rusqlite = { version = "0.31.0", features = ["bundled", "limits", "serde_json"] }
 rusqlite_migration = { version = "1.2.0", features = ["from-directory"] }
 seahash = "4.1.0"
-serde = { version = "1.0.204", features = ["derive"] }
-serde_json = "1.0.117"
+serde = { version = "1.0.210", features = ["derive"] }
+serde_json = "1.0.128"
 thiserror = "1.0.59"
 winnow = "0.5.34"
 

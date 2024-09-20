@@ -11,4 +11,4 @@ crate-type = ["cdylib"]
 [dependencies]
 codecov-rs = { path = "../core" }
 
-pyo3 = { version = "0.22.2", features = ["extension-module", "abi3-py312"] }
+pyo3 = { version = "0.22.3", features = ["extension-module", "abi3-py312"] }
