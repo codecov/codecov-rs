@@ -3,10 +3,12 @@
 #
 #    maturin generate-ci github --pytest
 #
-# Modified by hand to use PyPI's Trusted Publishing:
-# https://www.maturin.rs/distribution#using-pypis-trusted-publishing
-# Also to change when the workflow is triggered (should be on new release)
-# and remove unused target platforms.
+# Modified by hand to:
+# - use PyPI's Trusted Publishing https://www.maturin.rs/distribution#using-pypis-trusted-publishing
+# - trigger the workflow on new release
+# - add "packages: write" permission for uraimo/run-on-arch-action caching
+# - remove unnecessary target platforms
+# - make run-on-arch-action use deadsnakes Python 3.12
 name: CI
 
 on:
@@ -16,6 +18,7 @@ on:
 
 permissions:
   contents: read
+  packages: write
 
 jobs:
   linux:
@@ -65,11 +68,18 @@ jobs:
           githubToken: ${{ github.token }}
           install: |
             apt-get update
-            apt-get install -y --no-install-recommends python3 python3-pip
-            pip3 install -U pip pytest
+            apt-get install -y gnupg ca-certificates
+            echo "deb https://ppa.launchpadcontent.net/deadsnakes/ppa/ubuntu jammy main" >> /etc/apt/sources.list.d/deadsnakes.list
+            apt-key adv --keyserver keyserver.ubuntu.com --recv-keys F23C5A6CF475977595C89F51BA6932366A755776
+            apt-get update
+            apt-get install -y --no-install-recommends python3.12 python3.12-venv python3-pip
+            python3.12 -m venv /venv
+            source /venv/bin/activate
+            pip install -U pip pytest
           run: |
             set -e
-            pip3 install codecov_rs --find-links dist --force-reinstall
+            source /venv/bin/activate
+            pip install codecov_rs --find-links dist --force-reinstall
             pytest
 
   musllinux:
