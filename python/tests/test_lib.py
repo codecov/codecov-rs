@@ -18,9 +18,14 @@ def test_from_pyreport():
         "test_utils/fixtures/pyreport/codecov-rs-chunks-d2a9ba1.txt"
     )
 
-    with NamedTemporaryFile() as out_file:
+    # `NamedTemporaryFile` is finnicky on Windows:
+    # https://docs.python.org/3/library/tempfile.html#tempfile.NamedTemporaryFile
+    # `delete_on_close=False` is needed to allow sqlite to also open the file,
+    # and `del report_builder` is needed to allow the context manager to delete
+    # it.
+    with NamedTemporaryFile(delete_on_close=False) as out_file:
         report_builder = SqliteReportBuilder.from_pyreport(
             report_json_filepath, chunks_filepath, out_file.name
         )
-        print(report_builder.filepath())
         assert report_builder.filepath() is not None
+        del report_builder
