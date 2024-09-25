@@ -1,0 +1,2 @@
+# Pyreports are only created on Codecov's Linux backend, no need for CRLF
+* text eol=lf
