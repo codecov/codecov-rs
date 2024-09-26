@@ -9,6 +9,7 @@
 # - add "packages: write" permission for uraimo/run-on-arch-action caching
 # - remove unnecessary target platforms
 # - make run-on-arch-action use deadsnakes Python 3.12
+# - hardcode maturin version v1.7.1 because of a bug
 name: CI
 
 on:
@@ -44,6 +45,7 @@ jobs:
           args: --release --out dist
           sccache: 'true'
           manylinux: auto
+          maturin-version: 'v1.7.1'
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -105,6 +107,7 @@ jobs:
           args: --release --out dist
           sccache: 'true'
           manylinux: musllinux_1_2
+          maturin-version: 'v1.7.1'
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -162,6 +165,7 @@ jobs:
           target: ${{ matrix.platform.target }}
           args: --release --out dist
           sccache: 'true'
+          maturin-version: 'v1.7.1'
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -198,6 +202,7 @@ jobs:
           target: ${{ matrix.platform.target }}
           args: --release --out dist
           sccache: 'true'
+          maturin-version: 'v1.7.1'
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
