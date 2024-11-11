@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 pub use super::super::models::CoverageType;
 use crate::parsers::json::JsonVal;
+#[cfg(doc)]
+use crate::report::models;
 
 /// Enum representing the possible values of the "coverage" field in a
 /// ReportLine or LineSession object.
@@ -63,8 +65,8 @@ pub struct Partial {
 }
 
 /// Represents the coverage measurements taken for a specific "session". Each
-/// `LineSession` will correspond to a
-/// [`crate::report::models::CoverageSample`].
+/// [`LineSession`] will correspond to a
+/// [`CoverageSample`](models::CoverageSample).
 ///
 /// Each upload to our system constitutes a "session" and may be tagged with
 /// flags or other context that we want to filter on when viewing report data.
@@ -72,13 +74,13 @@ pub struct Partial {
 pub struct LineSession {
     /// This ID indicates which session the measurement was taken in. It can be
     /// used as a key in `buf.state.report_json_sessions` to get the ID of a
-    /// [`crate::report::models::Context`] in order to create a
-    /// [`crate::report::models::ContextAssoc`].
+    /// [`Context`](models::Context) in order to create a
+    /// [`ContextAssoc`](models::ContextAssoc).
     pub session_id: usize,
 
     /// The coverage measurement that was taken in this session. The
-    /// `CoverageType` is "inherited" from the [`ReportLine`] that this
-    /// `LineSession` is a part of.
+    /// [`CoverageType`] is "inherited" from the [`ReportLine`] that this
+    /// [`LineSession`] is a part of.
     pub coverage: PyreportCoverage,
 
     /// A list of specific branches/conditions stemming from this line that were
@@ -106,13 +108,13 @@ pub enum RawLabel {
     /// A numeric ID that was assigned to this label. The original label can be
     /// accessed in the `"labels_index"` key in the chunks file's header.
     /// For our parser's purposes, we can access the ID of the
-    /// [`crate::report::models::Context`] created for this label in
+    /// [`Context`](models::Context) created for this label in
     /// `buf.state.labels_index`.
     LabelId(u32),
 
     /// The name of the label. If we have encountered this label before, it
     /// should be in `buf.state.labels_index` pointing at the ID for a
-    /// [`crate::report::models::Context`]. Otherwise, we should create that
+    /// [`Context`](models::Context). Otherwise, we should create that
     /// `Context` + mapping ourselves.
     LabelName(String),
 }
@@ -124,20 +126,20 @@ pub enum RawLabel {
 pub struct CoverageDatapoint {
     /// This ID indicates which session the measurement was taken in. It can be
     /// used as a key in `buf.state.report_json_sessions` to get the ID of a
-    /// [`crate::report::models::Context`] in order to create a
-    /// [`crate::report::models::ContextAssoc`].
+    /// [`Context`](models::Context) in order to create a
+    /// [`ContextAssoc`](models::ContextAssoc).
     pub session_id: u32,
 
     /// A redundant copy of the coverage measurement for a session. We prefer
     /// the value from the [`LineSession`].
     pub _coverage: PyreportCoverage,
 
-    /// A redundant copy of the `CoverageType`. We use the value from the
+    /// A redundant copy of the [`CoverageType`]. We use the value from the
     /// [`ReportLine`].
     ///
     /// Technically this field is optional, but the way we serialize it when
     /// it's missing is identical to the way we serialize
-    /// [`crate::report::models::CoverageType::Line`] so there's
+    /// [`CoverageType::Line`] so there's
     /// no way to tell which it is when deserializing.
     pub _coverage_type: Option<CoverageType>,
 
@@ -167,7 +169,8 @@ pub struct ReportLine {
     pub coverage_type: CoverageType,
 
     /// The list of measurements taken for this line. Each of these corresponds
-    /// to a [`CoverageSample`] record in a `SqliteReport`.
+    /// to a [`CoverageSample`](models::CoverageSample) record in a
+    /// `SqliteReport`.
     pub sessions: Vec<LineSession>,
 
     /// Long forgotten field that takes up space.
@@ -177,9 +180,9 @@ pub struct ReportLine {
     /// `sessions`.
     pub _complexity: Option<Option<Complexity>>,
 
-    /// The list of [`CoverageDatapoint`]s for this line. `CoverageDatapoint` is
-    /// largely redundant but its `labels` field is the only place where label
-    /// data is recorded (e.g. which test case was running when this
+    /// The list of [`CoverageDatapoint`]s for this line. [`CoverageDatapoint`]
+    /// is largely redundant but its `labels` field is the only place where
+    /// label data is recorded (e.g. which test case was running when this
     /// measurement was collected).
     pub datapoints: Option<Option<HashMap<u32, CoverageDatapoint>>>,
 }

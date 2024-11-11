@@ -7,4 +7,4 @@ pub mod parsers;
 pub mod error;
 
 #[cfg(any(test, feature = "testing"))]
-mod test_utils;
+pub mod test_utils;

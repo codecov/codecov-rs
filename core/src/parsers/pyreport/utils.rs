@@ -53,7 +53,8 @@ fn format_pyreport_branch(branch: &MissingBranch) -> (models::BranchFormat, Stri
 }
 
 /// Each [`LineSession`] corresponds to a single [`models::CoverageSample`].
-/// Each [`CoverageSample`] _may_ (but won't always) have:
+/// Each [`CoverageSample`](models::CoverageSample) _may_ (but won't always)
+/// have:
 /// - multiple related [`models::BranchesData`] records, one for each specific
 ///   branch path we have data for
 /// - a single related [`models::MethodData`] if the `LineSession` is for a

@@ -61,7 +61,10 @@ jobs:
       - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: taiki-e/install-action@nextest
 
-      - run: cargo llvm-cov nextest --lcov --output-path core.lcov --workspace --all-features --all-targets
+      # FIXME(swatinem): We should pass `--all-targets` to also compile and tests benchmarks
+      # Though currently `divan` does not support all CLI arguments as used by `nextest`,
+      # and benchmarks are unbearably slow anyway, so its not feasible to run in debug builds.
+      - run: cargo llvm-cov nextest --lcov --output-path core.lcov --workspace --all-features
       - run: mv target/nextest/default/core-test-results.xml .
 
       - uses: actions/setup-python@v5

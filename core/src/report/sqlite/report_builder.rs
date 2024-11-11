@@ -13,12 +13,12 @@ use crate::{
 };
 
 /// Returned by [`SqliteReportBuilder::transaction`]. Contains the actual
-/// implementation for most of the `ReportBuilder` trait except for `build()`
+/// implementation for most of the [`ReportBuilder`] trait except for `build()`
 /// which is implemented on [`SqliteReportBuilder`]. All
-/// `SqliteReportBuilderTx`s created by a `SqliteReportBuilder` must
-/// go out of scope before `SqliteReportBuilder::build()` can be called because
-/// their `conn` member mutably borrows the SQLite database and prevents
-/// `build()` from moving it into a `SqliteReport`.
+/// [`SqliteReportBuilderTx`]s created by a [`SqliteReportBuilder`] must
+/// go out of scope before [`SqliteReportBuilder::build()`] can be called
+/// because their `conn` member mutably borrows the SQLite database and prevents
+/// `build()` from moving it into a [`SqliteReport`].
 pub struct SqliteReportBuilderTx<'a> {
     id_sequence: &'a mut RangeFrom<i64>,
 
@@ -26,7 +26,7 @@ pub struct SqliteReportBuilderTx<'a> {
     pub conn: Transaction<'a>,
 }
 
-impl<'a> SqliteReportBuilderTx<'a> {
+impl SqliteReportBuilderTx<'_> {
     pub fn rollback(self) -> Result<()> {
         Ok(self.conn.rollback()?)
     }
@@ -34,18 +34,20 @@ impl<'a> SqliteReportBuilderTx<'a> {
 
 /// Implementation of the [`ReportBuilder`] trait to build [`SqliteReport`]s.
 /// The [`SqliteReportBuilder::transaction`] method returns a
-/// [`SqliteReportBuilderTx`], an auxiliary `ReportBuilder` implementation which
-/// will run its operations in a transaction that gets committed when the
-/// `SqliteReportBuilderTx` goes out of scope. A non-transaction
-/// `SqliteReportBuilder`'s `ReportBuilder` functions (except for `build()`)
+/// [`SqliteReportBuilderTx`], an auxiliary [`ReportBuilder`] implementation
+/// which will run its operations in a transaction that gets committed when the
+/// [`SqliteReportBuilderTx`] goes out of scope. A non-transaction
+/// [`SqliteReportBuilder`]'s `ReportBuilder` functions (except for `build()`)
 /// call `self.transaction()?` for each call and delegate to the
-/// `SqliteReportBuilderTx` implementation.
+/// [`SqliteReportBuilderTx`] implementation.
 pub struct SqliteReportBuilder {
     pub filename: PathBuf,
     pub conn: Connection,
 
-    /// A single sequence is shared for [`CoverageSample`], [`BranchesData`],
-    /// [`MethodData`], and [`SpanData`].
+    /// A single sequence is shared for
+    /// [`CoverageSample`](models::CoverageSample),
+    /// [`BranchesData`](models::BranchesData),
+    /// [`MethodData`](models::MethodData), and [`SpanData`](models::SpanData).
     id_sequence: RangeFrom<i64>,
 }
 
@@ -212,7 +214,7 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
     }
 }
 
-impl<'a> ReportBuilder<SqliteReport> for SqliteReportBuilderTx<'a> {
+impl ReportBuilder<SqliteReport> for SqliteReportBuilderTx<'_> {
     fn insert_file(&mut self, path: &str) -> Result<models::SourceFile> {
         let model = models::SourceFile::new(path);
         model.insert(&self.conn)?;

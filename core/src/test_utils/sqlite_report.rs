@@ -26,7 +26,6 @@ pub fn build_sample_report(path: PathBuf) -> Result<SqliteReport> {
         env: Some("env upload 1".to_string()),
         session_type: Some("type upload 1".to_string()),
         session_extras: Some(json!({"k1": "v1"})),
-        ..Default::default()
     };
     // Insert directly, not through report builder, because we don't want a random
     // ID
@@ -46,7 +45,6 @@ pub fn build_sample_report(path: PathBuf) -> Result<SqliteReport> {
         env: Some("env upload 2".to_string()),
         session_type: Some("type upload 2".to_string()),
         session_extras: Some(json!({"k2": "v2"})),
-        ..Default::default()
     };
     // Insert directly, not through report builder, because we don't want a random
     // ID

@@ -20,6 +20,8 @@ use super::{
     },
     utils,
 };
+#[cfg(doc)]
+use crate::report::models;
 use crate::report::{
     pyreport::{types::*, CHUNKS_FILE_END_OF_CHUNK, CHUNKS_FILE_HEADER_TERMINATOR},
     Report, ReportBuilder,
@@ -28,7 +30,7 @@ use crate::report::{
 #[derive(PartialEq, Debug)]
 pub struct ChunkCtx {
     /// The index of this chunk in the overall sequence of chunks tells us which
-    /// [`crate::report::models::SourceFile`] this chunk corresponds to.
+    /// [`SourceFile`](models::SourceFile) this chunk corresponds to.
     pub index: usize,
 
     /// Each line in a chunk corresponds to a line in the source file.
@@ -44,7 +46,7 @@ pub struct ParseCtx<R: Report, B: ReportBuilder<R>> {
 
     /// Tracks the labels that we've already added to the report. The key is the
     /// identifier for the label inside the chunks file and the value is the
-    /// ID of the [`crate::report::models::Context`] we created for it in
+    /// ID of the [`Context`](models::Context) we created for it in
     /// the output. If a `"labels_index"` key is present in the chunks file
     /// header, this is populated all at once and the key is a numeric ID.
     /// Otherwise, this is populated as new labels are encountered and the key
@@ -55,12 +57,12 @@ pub struct ParseCtx<R: Report, B: ReportBuilder<R>> {
     pub chunk: ChunkCtx,
 
     /// The output of the report JSON parser includes a map from `chunk_index`
-    /// to the ID of the [`crate::report::models::SourceFile`] that the
+    /// to the ID of the [`SourceFile`](models::SourceFile) that the
     /// chunk corresponds to.
     pub report_json_files: HashMap<usize, i64>,
 
     /// The output of the report JSON parser includes a map from `session_id` to
-    /// the ID of the [`crate::report::models::Context`] that the session
+    /// the ID of the [`Context`](models::Context) that the session
     /// corresponds to.
     pub report_json_sessions: HashMap<usize, i64>,
 }
@@ -121,8 +123,8 @@ pub fn coverage<S: StrStream, R: Report, B: ReportBuilder<R>>(
     .parse_next(buf)
 }
 
-/// Parses the coverage type described by a `ReportLine`. Beware: this field may
-/// be inaccurate.
+/// Parses the coverage type described by a [`ReportLine`]. Beware: this field
+/// may be inaccurate.
 ///
 /// For example, in a chunks file for a Go project, the "coverage type" field is
 /// always `null` when some of the values in the "coverage" field indicate the
@@ -141,7 +143,8 @@ pub fn coverage_type<S: StrStream, R: Report, B: ReportBuilder<R>>(
     .parse_next(buf)
 }
 
-/// Parses value of the "complexity" field in a `ReportLine` or `LineSession`.
+/// Parses value of the "complexity" field in a [`ReportLine`] or
+/// [`LineSession`].
 ///
 /// Examples: `1`, `3`, `[0, 1]`, `[2, 2]`
 pub fn complexity<S: StrStream, R: Report, B: ReportBuilder<R>>(
@@ -218,9 +221,9 @@ where
     .parse_next(buf)
 }
 
-/// Parses values in the "partials" field of a `LineSession`. These values don't
-/// necessarily have to do with partial branch coverage; what they describe is
-/// the coverage status of different subspans of a single line.
+/// Parses values in the "partials" field of a [`LineSession`]. These values
+/// don't necessarily have to do with partial branch coverage; what they
+/// describe is the coverage status of different subspans of a single line.
 ///
 /// Examples:
 /// - `[null, 10, 0]`: This line was not covered from its start until column 10
@@ -254,7 +257,7 @@ pub fn partial_spans<S: StrStream, R: Report, B: ReportBuilder<R>>(
 }
 
 /// Parses a [`LineSession`]. Each [`LineSession`] corresponds to a
-/// [`crate::report::models::CoverageSample`] in the output report.
+/// [`CoverageSample`](models::CoverageSample) in the output report.
 ///
 /// A [`ReportLine`] has a [`LineSession`] for each upload ("session") sent to
 /// us for a commit. The [`LineSession`] contains the coverage measurements for
@@ -346,7 +349,7 @@ pub fn label<S: StrStream, R: Report, B: ReportBuilder<R>>(
 ///
 /// Technically `_coverage_type` is optional, but the way it gets serialized
 /// when it's missing is identical to the way we serialize
-/// [`crate::report::models::CoverageType::Line`] so there's no way to tell
+/// [`CoverageType::Line`] so there's no way to tell
 /// which it is when deserializing.
 pub fn coverage_datapoint<S: StrStream, R: Report, B: ReportBuilder<R>>(
     buf: &mut ReportOutputStream<S, R, B>,
@@ -369,11 +372,12 @@ pub fn coverage_datapoint<S: StrStream, R: Report, B: ReportBuilder<R>>(
 
 /// Parses a [`ReportLine`]. A [`ReportLine`] itself does not correspond to
 /// anything in the output, but it's an umbrella that includes all of the data
-/// tied to a line/[`CoverageSample`].
+/// tied to a line/[`CoverageSample`](models::CoverageSample).
 ///
 /// This parser performs all the writes it can to the output
-/// stream and only returns a `ReportLine` for tests. The `report_line_or_empty`
-/// parser which wraps this and supports empty lines returns `Ok(())`.
+/// stream and only returns a [`ReportLine`] for tests. The
+/// `report_line_or_empty` parser which wraps this and supports empty lines
+/// returns `Ok(())`.
 pub fn report_line<'a, S, R: Report, B: ReportBuilder<R>>(
     buf: &mut ReportOutputStream<S, R, B>,
 ) -> PResult<ReportLine>
