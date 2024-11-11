@@ -6,6 +6,9 @@ on:
       - main
   pull_request:
 
+env:
+  RUSTFLAGS: -Dwarnings
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
@@ -15,81 +18,55 @@ jobs:
     name: Lint (rustfmt + clippy)
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@nightly
-        with:
-          toolchain: nightly
-          components: clippy, rustfmt
-      - name: Run lint
-        run: make lint.rust
+      - uses: actions/checkout@v4
+
+      - run: rustup toolchain install nightly --profile minimal --component rustfmt --component clippy --no-self-update
+
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all-features --workspace --tests --examples -- -D clippy::all
 
   lint-python:
     name: Lint Python (ruff, mypy)
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - uses: actions/setup-python@v3
-      - name: Set up venv
-        run: make ci.setup_venv
-      - name: Build and run lint
-        run: |
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+      - run: make ci.setup_venv
+
+      - run: |
           maturin develop
           make lint.python
+
+  doctest:
+    name: Documentation (and Tests)
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: -Dwarnings
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: rustup toolchain install nightly --profile minimal --no-self-update
+
+      - run: cargo test --workspace --all-features --doc
+      - run: cargo doc --workspace --all-features --document-private-items --no-deps
 
   test:
     name: Test
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@nightly
-        with:
-          toolchain: nightly
-      - name: Run Rust tests
-        run: |
-          cargo test
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v3
-      - name: Set up venv
-        run: make ci.setup_venv
-      - name: Run Python tests
-        run: |
-          maturin develop
-          pytest
+      - run: rustup toolchain install nightly --profile minimal --no-self-update
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: taiki-e/install-action@nextest
 
-  # This job runs tests, generates coverage data, and generates JUnit test
-  # results in a single test invocation and then uploads it all to Codecov.
-  # However, it doesn't print test results to stdout. If Codecov's failed test
-  # reporting is solid and we never need to see the results in the CI logs, we
-  # can delete the "normal" test step and just use this.
-  test-for-codecov:
-    name: Test (Upload to Codecov)
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@nightly
-        with:
-          toolchain: nightly
-      - name: Install `cargo llvm-cov`
-        uses: taiki-e/install-action@cargo-llvm-cov
-      - name: Run tests
-        run: |
-          cargo install cargo2junit
-          cargo llvm-cov --lcov --output-path core.lcov -- -Z unstable-options --format json --report-time | cargo2junit > core-test-results.xml
+      - run: cargo llvm-cov nextest --lcov --output-path core.lcov --workspace --all-features --all-targets
+      - run: mv target/nextest/default/core-test-results.xml .
 
-      - uses: actions/setup-python@v3
-      - name: Set up venv
-        run: make ci.setup_venv
+      - uses: actions/setup-python@v5
+      - run: make ci.setup_venv
+
       - name: Run Python tests
         run: |
           # Clear prior profile data

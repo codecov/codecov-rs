@@ -28,3 +28,5 @@ __pycache__/
 
 .git
 lcov.info
+/*test-results.xml
+/*.lcov
