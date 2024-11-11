@@ -1,0 +1,18 @@
+name: Crate maintenance
+
+on:
+  schedule:
+    - cron: "14 3 * * 5" # every friday at 03:14
+  workflow_dispatch:
+
+jobs:
+  rust-maintain:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      # you should use a *pinned commit*:
+      - uses: Swatinem/rust-maintain@d30335b4b3c4c7a19c42ca2e25e3d73500f22098
