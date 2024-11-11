@@ -1,0 +1,31 @@
+name: Benchmarks
+
+on:
+  push:
+    branches:
+      - "main"
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  benchmarks:
+    name: Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - run: rustup toolchain install nightly --profile minimal --no-self-update
+      - uses: cargo-bins/cargo-binstall@main
+      - run: cargo binstall cargo-codspeed
+
+      # FIXME(swatinem): `cargo-codspeed` does currently not support `--all-features`
+      - name: Build the benchmark target(s)
+        run: cargo codspeed build --features=testing
+
+      - name: Run the benchmarks
+        uses: CodSpeedHQ/action@v3
+        with:
+          run: cargo codspeed run
+          token: ${{ secrets.CODSPEED_TOKEN }}
