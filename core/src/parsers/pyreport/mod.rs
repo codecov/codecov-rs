@@ -3,6 +3,8 @@ use std::fs::File;
 use memmap2::Mmap;
 
 use crate::error::Result;
+#[cfg(doc)]
+use crate::report::models;
 use crate::report::SqliteReportBuilder;
 
 pub mod chunks;
@@ -18,14 +20,14 @@ mod utils;
 /// - Chunks file, which describes line-by-line coverage data for each file
 ///
 /// The parser for the report JSON inserts a
-/// [`crate::report::models::SourceFile`] for each file
-/// and a [`crate::report::models::Context`] for each session. It returns two
+/// [`SourceFile`](models::SourceFile) for each file
+/// and a [`Context`](models::Context) for each session. It returns two
 /// hashmaps: one which maps each file's "chunk index" to the database PK for
-/// the `SourceFile` that was inserted for it, and one which maps each session's
+/// the [`SourceFile`](models::SourceFile) that was inserted for it, and one which maps each session's
 /// "session_id" to the database PK for the `Context` that was inserted for it.
 ///
 /// The parser for the chunks file inserts a
-/// [`crate::report::models::CoverageSample`] (and possibly other records) for
+/// [`CoverageSample`](models::CoverageSample) (and possibly other records) for
 /// each coverage measurement contained in the chunks file. It uses the
 /// results of the report JSON parser to figure out the appropriate FKs to
 /// associate a measurement with its `SourceFile` and `Context`(s).

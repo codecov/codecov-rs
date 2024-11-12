@@ -46,6 +46,8 @@ use serde::{de, Deserialize};
 use super::report_json::ParsedReportJson;
 use super::utils;
 use crate::error::CodecovError;
+#[cfg(doc)]
+use crate::report::models;
 use crate::report::pyreport::types::{
     self, CoverageType, MissingBranch, Partial, PyreportCoverage, ReportLine,
 };
