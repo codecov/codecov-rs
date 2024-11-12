@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use serde::Deserialize;
 
 pub use super::super::models::CoverageType;
-use crate::parsers::json::JsonVal;
 #[cfg(doc)]
 use crate::report::models;
 
@@ -176,7 +175,7 @@ pub struct ReportLine {
     pub sessions: Vec<LineSession>,
 
     /// Long forgotten field that takes up space.
-    pub _messages: Option<Option<JsonVal>>,
+    pub _messages: Option<Option<serde_json::Value>>,
 
     /// An aggregated complexity metric across all of the [`LineSession`]s in
     /// `sessions`.

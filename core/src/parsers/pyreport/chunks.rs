@@ -34,7 +34,7 @@
 //! `report_line_or_empty` parser which wraps this and supports empty lines
 //! returns `Ok(())`.
 
-use std::{collections::HashMap, fmt, mem, sync::OnceLock};
+use std::{collections::HashMap, fmt, marker::PhantomData, mem, sync::OnceLock};
 
 use memchr::{memchr, memmem};
 use serde::{de, de::IgnoredAny, Deserialize};
@@ -42,7 +42,6 @@ use serde::{de, de::IgnoredAny, Deserialize};
 use super::{report_json::ParsedReportJson, utils};
 use crate::{
     error::CodecovError,
-    parsers::common::ReportBuilderCtx,
     report::{
         pyreport::{
             types::{self, CoverageType, MissingBranch, Partial, PyreportCoverage, ReportLine},
@@ -67,7 +66,9 @@ pub struct ChunkCtx {
 pub struct ParseCtx<R: Report, B: ReportBuilder<R>> {
     /// Rather than returning parsed results, we write them to this
     /// `report_builder`.
-    pub db: ReportBuilderCtx<R, B>,
+    pub report_builder: B,
+    // FIXME: Rust, you are drunk. We need `R`.
+    _phantom: PhantomData<R>,
 
     /// Tracks the labels that we've already added to the report. The key is the
     /// identifier for the label inside the chunks file and the value is the
@@ -100,7 +101,8 @@ impl<R: Report, B: ReportBuilder<R>> ParseCtx<R, B> {
     ) -> ParseCtx<R, B> {
         ParseCtx {
             labels_index: HashMap::new(),
-            db: ReportBuilderCtx::new(report_builder),
+            report_builder,
+            _phantom: PhantomData,
             chunk: ChunkCtx {
                 index: 0,
                 current_line: 0,
@@ -114,7 +116,7 @@ impl<R: Report, B: ReportBuilder<R>> ParseCtx<R, B> {
 impl<R: Report, B: ReportBuilder<R>> fmt::Debug for ParseCtx<R, B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ParseCtx")
-            .field("db", &self.db)
+            .field("report_builder", &format_args!("..."))
             .field("labels_index", &self.labels_index)
             .field("chunk", &self.chunk)
             .finish()
@@ -173,7 +175,7 @@ where
                     for datapoint in datapoints.values() {
                         for label in &datapoint.labels {
                             if !ctx.labels_index.contains_key(label) {
-                                let context = ctx.db.report_builder.insert_context(label)?;
+                                let context = ctx.report_builder.insert_context(label)?;
                                 ctx.labels_index.insert(label.into(), context.id);
                             }
                         }

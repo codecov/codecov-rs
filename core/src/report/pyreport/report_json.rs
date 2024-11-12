@@ -1,10 +1,9 @@
 use std::io::Write;
 
-use serde_json::json;
+use serde_json::{json, Value as JsonVal};
 
 use crate::{
     error::Result,
-    parsers::json::JsonVal,
     report::{models, sqlite::json_value_from_sql, SqliteReport},
 };
 
