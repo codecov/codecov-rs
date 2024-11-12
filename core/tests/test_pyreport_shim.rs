@@ -1,17 +1,17 @@
-use std::{collections::HashMap, fs::File, io::Seek, path::PathBuf};
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::Seek;
+use std::path::PathBuf;
 
-use codecov_rs::{
-    parsers::pyreport::{
-        self, chunks,
-        report_json::{self, ParsedReportJson},
-    },
-    report::{models, pyreport::ToPyreport, Report, ReportBuilder, SqliteReportBuilder},
-};
+use codecov_rs::parsers::pyreport::report_json::{self, ParsedReportJson};
+use codecov_rs::parsers::pyreport::{self, chunks};
+use codecov_rs::report::pyreport::ToPyreport;
+use codecov_rs::report::{models, Report, ReportBuilder, SqliteReportBuilder};
 use serde_json::json;
 use tempfile::TempDir;
-use test_utils::fixtures::{
-    open_fixture, read_fixture, FixtureFormat::Pyreport, FixtureSize::Small,
-};
+use test_utils::fixtures::FixtureFormat::Pyreport;
+use test_utils::fixtures::FixtureSize::Small;
+use test_utils::fixtures::{open_fixture, read_fixture};
 
 struct Ctx {
     temp_dir: TempDir,

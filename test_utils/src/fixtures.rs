@@ -1,9 +1,7 @@
-use std::{
-    fmt,
-    fs::File,
-    io::{Read, Seek},
-    path::PathBuf,
-};
+use std::fmt;
+use std::fs::File;
+use std::io::{Read, Seek};
+use std::path::PathBuf;
 
 #[derive(Copy, Clone)]
 pub enum FixtureFormat {

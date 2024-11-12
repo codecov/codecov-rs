@@ -1,16 +1,13 @@
-use std::{
-    ops::RangeFrom,
-    path::{Path, PathBuf},
-};
+use std::ops::RangeFrom;
+use std::path::{Path, PathBuf};
 
 use rand::Rng;
 use rusqlite::{Connection, Transaction};
 
-use super::{models::Insertable, open_database, SqliteReport};
-use crate::{
-    error::{CodecovError, Result},
-    report::{models, ReportBuilder},
-};
+use super::models::Insertable;
+use super::{open_database, SqliteReport};
+use crate::error::{CodecovError, Result};
+use crate::report::{models, ReportBuilder};
 
 /// Returned by [`SqliteReportBuilder::transaction`]. Contains the actual
 /// implementation for most of the [`ReportBuilder`] trait except for `build()`

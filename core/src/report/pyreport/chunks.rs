@@ -3,10 +3,9 @@ use std::io::Write;
 use serde_json::{json, Number as JsonNumber, Value as JsonVal};
 
 use super::{CHUNKS_FILE_END_OF_CHUNK, CHUNKS_FILE_HEADER_TERMINATOR};
-use crate::{
-    error::{CodecovError, Result},
-    report::{models, sqlite::json_value_from_sql, SqliteReport},
-};
+use crate::error::{CodecovError, Result};
+use crate::report::sqlite::json_value_from_sql;
+use crate::report::{models, SqliteReport};
 
 /// To save space, trailing nulls are removed from arrays in `ReportLine`s.
 ///

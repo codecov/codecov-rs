@@ -15,10 +15,6 @@ pub enum CodecovError {
     #[error("report builder error: '{0}'")]
     ReportBuilderError(String),
 
-    // Can't use #[from]
-    #[error("parser error: '{0}'")]
-    ParserError(winnow::error::ContextError),
-
     #[error("parser error: '{0}'")]
     Json(#[from] serde_json::Error),
 

@@ -2,7 +2,8 @@ use std::fs::File;
 
 use memmap2::Mmap;
 
-use crate::{error::Result, report::SqliteReportBuilder};
+use crate::error::Result;
+use crate::report::SqliteReportBuilder;
 
 pub mod chunks;
 pub mod report_json;

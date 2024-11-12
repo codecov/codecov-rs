@@ -2,10 +2,9 @@ use std::io::Write;
 
 use serde_json::{json, Value as JsonVal};
 
-use crate::{
-    error::Result,
-    report::{models, sqlite::json_value_from_sql, SqliteReport},
-};
+use crate::error::Result;
+use crate::report::sqlite::json_value_from_sql;
+use crate::report::{models, SqliteReport};
 
 /// Coverage percentages are written with 5 decimal places of precision unless
 /// they are 0 or 100.

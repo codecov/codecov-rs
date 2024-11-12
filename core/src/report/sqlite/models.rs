@@ -556,13 +556,9 @@ mod tests {
     use serde_json::json;
     use tempfile::TempDir;
 
-    use super::{
-        super::{
-            super::{Report, ReportBuilder},
-            SqliteReport, SqliteReportBuilder,
-        },
-        *,
-    };
+    use super::super::super::{Report, ReportBuilder};
+    use super::super::{SqliteReport, SqliteReportBuilder};
+    use super::*;
 
     #[derive(PartialEq, Debug)]
     struct TestModel {

@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
-use codecov_rs::{
-    parsers::pyreport::{chunks, report_json},
-    test_utils::test_report::TestReportBuilder,
-};
+use codecov_rs::parsers::pyreport::{chunks, report_json};
+use codecov_rs::test_utils::test_report::TestReportBuilder;
 use criterion::{criterion_group, criterion_main, Criterion};
-use test_utils::fixtures::{read_fixture, FixtureFormat::Pyreport, FixtureSize::Large};
+use test_utils::fixtures::read_fixture;
+use test_utils::fixtures::FixtureFormat::Pyreport;
+use test_utils::fixtures::FixtureSize::Large;
 
 criterion_group!(
     benches,

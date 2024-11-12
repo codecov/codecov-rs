@@ -1,15 +1,10 @@
 use super::chunks::ParseCtx;
-use crate::{
-    error::Result,
-    report::{
-        models,
-        pyreport::types::{
-            Complexity, CoverageDatapoint, LineSession, MissingBranch, Partial, PyreportCoverage,
-            ReportLine,
-        },
-        Report, ReportBuilder,
-    },
+use crate::error::Result;
+use crate::report::pyreport::types::{
+    Complexity, CoverageDatapoint, LineSession, MissingBranch, Partial, PyreportCoverage,
+    ReportLine,
 };
+use crate::report::{models, Report, ReportBuilder};
 
 fn separate_pyreport_complexity(complexity: &Complexity) -> (Option<i64>, Option<i64>) {
     let (covered, total) = match complexity {

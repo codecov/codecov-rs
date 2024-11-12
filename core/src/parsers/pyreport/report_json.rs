@@ -163,13 +163,12 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use serde::{de::IgnoredAny, Deserialize};
+use serde::de::IgnoredAny;
+use serde::Deserialize;
 use serde_json::Value;
 
-use crate::{
-    error::CodecovError,
-    report::{models, Report, ReportBuilder},
-};
+use crate::error::CodecovError;
+use crate::report::{models, Report, ReportBuilder};
 
 #[derive(Debug, Deserialize)]
 struct ReportJson {

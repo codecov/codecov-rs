@@ -34,22 +34,23 @@
 //! `report_line_or_empty` parser which wraps this and supports empty lines
 //! returns `Ok(())`.
 
-use std::{collections::HashMap, fmt, marker::PhantomData, mem, sync::OnceLock};
+use std::collections::HashMap;
+use std::marker::PhantomData;
+use std::sync::OnceLock;
+use std::{fmt, mem};
 
 use memchr::{memchr, memmem};
-use serde::{de, de::IgnoredAny, Deserialize};
+use serde::de::IgnoredAny;
+use serde::{de, Deserialize};
 
-use super::{report_json::ParsedReportJson, utils};
-use crate::{
-    error::CodecovError,
-    report::{
-        pyreport::{
-            types::{self, CoverageType, MissingBranch, Partial, PyreportCoverage, ReportLine},
-            CHUNKS_FILE_END_OF_CHUNK, CHUNKS_FILE_HEADER_TERMINATOR,
-        },
-        Report, ReportBuilder,
-    },
+use super::report_json::ParsedReportJson;
+use super::utils;
+use crate::error::CodecovError;
+use crate::report::pyreport::types::{
+    self, CoverageType, MissingBranch, Partial, PyreportCoverage, ReportLine,
 };
+use crate::report::pyreport::{CHUNKS_FILE_END_OF_CHUNK, CHUNKS_FILE_HEADER_TERMINATOR};
+use crate::report::{Report, ReportBuilder};
 
 #[derive(PartialEq, Debug)]
 pub struct ChunkCtx {

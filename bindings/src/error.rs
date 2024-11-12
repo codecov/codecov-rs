@@ -1,5 +1,6 @@
 pub use codecov_rs::error::CodecovError as RsCodecovError;
-use pyo3::{exceptions::PyRuntimeError, prelude::*};
+use pyo3::exceptions::PyRuntimeError;
+use pyo3::prelude::*;
 
 pub struct PyCodecovError(RsCodecovError);
 
