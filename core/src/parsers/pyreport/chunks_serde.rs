@@ -69,6 +69,7 @@ where
     }
 
     let mut ctx = ParseCtx::new(builder, report_json.files, report_json.sessions);
+    ctx.labels_index = labels_index;
 
     let mut report_lines = vec![];
 
@@ -92,9 +93,23 @@ where
                     })
                     .collect();
 
-                let datapoints = line
-                    .5
-                    .map(|dps| dps.into_iter().map(|dp| (dp.0, dp.into())).collect());
+                let datapoints: Option<HashMap<_, _>> = line.5.map(|dps| {
+                    dps.into_iter()
+                        .map(|dp| (dp.0, types::CoverageDatapoint::from(dp)))
+                        .collect()
+                });
+
+                if let Some(datapoints) = &datapoints {
+                    for datapoint in datapoints.values() {
+                        for label in &datapoint.labels {
+                            if !ctx.labels_index.contains_key(label) {
+                                let context = ctx.db.report_builder.insert_context(label)?;
+                                ctx.labels_index.insert(label.into(), context.id);
+                            }
+                        }
+                    }
+                }
+
                 let mut report_line = ReportLine {
                     line_no,
                     coverage: line.0,
