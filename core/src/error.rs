@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::parsers::pyreport::chunks_serde::ChunksFileParseError;
+use crate::parsers::pyreport::chunks::ChunksFileParseError;
 
 pub type Result<T, E = CodecovError> = std::result::Result<T, E>;
 

@@ -5,18 +5,13 @@ use codecov_rs::{
         self, chunks,
         report_json::{self, ParsedReportJson},
     },
-    report::{
-        models, pyreport::ToPyreport, Report, ReportBuilder, SqliteReport, SqliteReportBuilder,
-    },
+    report::{models, pyreport::ToPyreport, Report, ReportBuilder, SqliteReportBuilder},
 };
 use serde_json::json;
 use tempfile::TempDir;
 use test_utils::fixtures::{
     open_fixture, read_fixture, FixtureFormat::Pyreport, FixtureSize::Small,
 };
-use winnow::Parser;
-
-type ChunksStream<'a> = chunks::ReportOutputStream<&'a str, SqliteReport, SqliteReportBuilder>;
 
 struct Ctx {
     temp_dir: TempDir,
@@ -92,7 +87,6 @@ fn test_parse_report_json() {
 #[test]
 fn test_parse_chunks_file() {
     let input = read_fixture(Pyreport, Small, "codecov-rs-chunks-d2a9ba1.txt").unwrap();
-    let input = std::str::from_utf8(&input).unwrap();
     let test_ctx = setup();
 
     let mut report_builder = SqliteReportBuilder::open(test_ctx.db_file).unwrap();
@@ -118,21 +112,13 @@ fn test_parse_chunks_file() {
         .unwrap();
     report_json_sessions.insert(0, session.id);
 
-    // Set up to call the chunks parser
-    let chunks_parse_ctx = chunks::ParseCtx::new(
-        report_builder,
-        report_json_files.clone(),
-        report_json_sessions.clone(),
-    );
-
-    let mut buf = ChunksStream {
-        input,
-        state: chunks_parse_ctx,
+    let report_json = ParsedReportJson {
+        files: report_json_files.clone(),
+        sessions: report_json_sessions,
     };
 
-    chunks::parse_chunks_file
-        .parse_next(&mut buf)
-        .expect("Failed to parse");
+    let report_builder_tx = report_builder.transaction().unwrap();
+    chunks::parse_chunks_file(&input, report_json, report_builder_tx).expect("Failed to parse");
 
     // Helper function for creating our expected values
     let mut coverage_sample_id_iterator = 0..;
@@ -187,7 +173,7 @@ fn test_parse_chunks_file() {
         }
     }
 
-    let report = buf.state.db.report_builder.build().unwrap();
+    let report = report_builder.build().unwrap();
     let actual_coverage_samples = report
         .list_coverage_samples()
         .expect("Failed to list coverage samples");

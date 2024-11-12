@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use codecov_rs::{
-    parsers::pyreport::{chunks_serde, report_json},
+    parsers::pyreport::{chunks, report_json},
     test_utils::test_report::TestReportBuilder,
 };
 use criterion::{criterion_group, criterion_main, Criterion};
@@ -104,5 +104,5 @@ fn complex_chunks(c: &mut Criterion) {
 
 fn parse_chunks_file_serde(input: &[u8], report_json: report_json::ParsedReportJson) {
     let report_builder = TestReportBuilder::default();
-    chunks_serde::parse_chunks_file(input, report_json, report_builder).unwrap();
+    chunks::parse_chunks_file(input, report_json, report_builder).unwrap();
 }
