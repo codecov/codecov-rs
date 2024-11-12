@@ -26,7 +26,7 @@ pub struct SqliteReportBuilderTx<'a> {
     pub conn: Transaction<'a>,
 }
 
-impl<'a> SqliteReportBuilderTx<'a> {
+impl SqliteReportBuilderTx<'_> {
     pub fn rollback(self) -> Result<()> {
         Ok(self.conn.rollback()?)
     }
@@ -212,7 +212,7 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
     }
 }
 
-impl<'a> ReportBuilder<SqliteReport> for SqliteReportBuilderTx<'a> {
+impl ReportBuilder<SqliteReport> for SqliteReportBuilderTx<'_> {
     fn insert_file(&mut self, path: &str) -> Result<models::SourceFile> {
         let model = models::SourceFile::new(path);
         model.insert(&self.conn)?;
