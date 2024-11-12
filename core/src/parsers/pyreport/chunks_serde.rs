@@ -9,11 +9,12 @@
 //! - `"labels_index"`: assigns a numeric ID to each label to save space
 //!
 //! If the `"labels_index"` key is present, this parser will insert each label
-//! into the report as a [`crate::report::models::Context`] and create a mapping
+//! into the report as a [`Context`](models::Context) and create a mapping
 //! in `buf.state.labels_index` from numeric ID in the header to the
-//! new `Context`'s ID in the output report. If the `"labels_index"` key is
-//! _not_ present, we will populate `buf.state.labels_index` gradually as we
-//! encounter new labels during parsing.
+//! new [`Context`](models::Context)'s ID in the output report. If the
+//! `"labels_index"` key is _not_ present, we will populate
+//! `buf.state.labels_index` gradually as we encounter new labels during
+//! parsing.
 //!
 //! A chunk contains all of the line-by-line measurements for
 //! a file. The Nth chunk corresponds to the file whose entry in
@@ -26,24 +27,24 @@
 //! A line may be empty, or it may contain a [`LineRecord`].
 //! A [`LineRecord`] itself does not correspond to anything in the output,
 //! but it's an umbrella that includes all of the data
-//! tied to a line/[`CoverageSample`].
+//! tied to a line/[`CoverageSample`](models::CoverageSample).
 //!
 //! This parser performs all the writes it can to the output
-//! stream and only returns a `ReportLine` for tests. The `report_line_or_empty`
-//! parser which wraps this and supports empty lines returns `Ok(())`.
+//! stream and only returns a [`ReportLine`] for tests. The
+//! `report_line_or_empty` parser which wraps this and supports empty lines
+//! returns `Ok(())`.
 
 use std::{collections::HashMap, fmt, mem, sync::OnceLock};
 
 use memchr::{memchr, memmem};
 use serde::{de, de::IgnoredAny, Deserialize};
 
-use super::report_json::ParsedReportJson;
+use super::{chunks::ParseCtx, report_json::ParsedReportJson, utils};
 use crate::{
     error::CodecovError,
     report::{
-        models,
         pyreport::{
-            types::{self, PyreportCoverage, ReportLine},
+            types::{self, CoverageType, MissingBranch, Partial, PyreportCoverage, ReportLine},
             CHUNKS_FILE_END_OF_CHUNK, CHUNKS_FILE_HEADER_TERMINATOR,
         },
         Report, ReportBuilder,
@@ -52,8 +53,8 @@ use crate::{
 
 pub fn parse_chunks_file<B, R>(
     input: &[u8],
-    _report_json: &ParsedReportJson,
-    builder: &mut B,
+    report_json: ParsedReportJson,
+    mut builder: B,
 ) -> Result<(), CodecovError>
 where
     B: ReportBuilder<R>,
@@ -67,47 +68,50 @@ where
         labels_index.insert(index.clone(), context.id);
     }
 
+    let mut ctx = ParseCtx::new(builder, report_json.files, report_json.sessions);
+
     let mut report_lines = vec![];
 
     let mut chunks = chunks_file.chunks();
+    let mut chunk_no = 0;
     while let Some(mut chunk) = chunks.next_chunk()? {
         let mut line_no = 0;
         report_lines.clear();
         while let Some(line) = chunk.next_line()? {
             line_no += 1;
             if let Some(line) = line {
-                let coverage_type = match line.1.unwrap_or_default() {
-                    CoverageType::Line => models::CoverageType::Line,
-                    CoverageType::Branch => models::CoverageType::Branch,
-                    CoverageType::Method => models::CoverageType::Method,
-                };
                 let sessions = line
                     .2
                     .into_iter()
                     .map(|session| types::LineSession {
                         session_id: session.0,
-                        coverage: session.1.into(),
-                        branches: None,   // TODO
-                        partials: None,   // TODO
+                        coverage: session.1,
+                        branches: session.2.into(),
+                        partials: session.3.into(),
                         complexity: None, // TODO
                     })
                     .collect();
 
+                let datapoints = line
+                    .5
+                    .map(|dps| dps.into_iter().map(|dp| (dp.0, dp.into())).collect());
                 let mut report_line = ReportLine {
                     line_no,
-                    coverage: line.0.into(),
-                    coverage_type,
+                    coverage: line.0,
+                    coverage_type: line.1.unwrap_or_default(),
                     sessions,
                     _messages: None,
                     _complexity: None,
-                    datapoints: None, // TODO
+                    datapoints: Some(datapoints),
                 };
                 report_line.normalize();
                 report_lines.push(report_line);
             }
         }
-        // TODO:
-        // utils::save_report_lines()?;
+
+        ctx.chunk.index = chunk_no;
+        utils::save_report_lines(&report_lines, &mut ctx)?;
+        chunk_no += 1;
     }
 
     Ok(())
@@ -214,7 +218,7 @@ pub struct Chunk<'d> {
     input: &'d [u8],
 }
 
-impl<'d> Chunk<'d> {
+impl Chunk<'_> {
     pub fn present_sessions(&self) -> &[u32] {
         &self.chunk_header.present_sessions
     }
@@ -230,7 +234,7 @@ impl<'d> Chunk<'d> {
 
         let line_record: LineRecord =
             serde_json::from_slice(line).map_err(ChunksFileParseError::InvalidLineRecord)?;
-        return Ok(Some(Some(line_record)));
+        Ok(Some(Some(line_record)))
     }
 }
 
@@ -273,7 +277,7 @@ impl Eq for IgnoredAnyEq {}
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct LineRecord(
     /// coverage
-    Coverage,
+    PyreportCoverage,
     /// coverage type
     Option<CoverageType>,
     /// sessions
@@ -284,9 +288,9 @@ pub struct LineRecord(
     /// complexity
     #[serde(default)]
     Option<IgnoredAnyEq>,
-    /// TODO: datapoints
+    /// datapoints
     #[serde(default)]
-    Option<IgnoredAnyEq>,
+    Option<Vec<CoverageDatapoint>>,
 );
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -294,25 +298,41 @@ pub struct LineSession(
     /// session id
     usize,
     /// coverage
-    Coverage,
-    /// TODO: branches
+    PyreportCoverage,
+    /// branches
     #[serde(default)]
-    Option<IgnoredAnyEq>,
-    /// TODO: partials
+    Option<Vec<MissingBranch>>,
+    /// partials
     #[serde(default)]
-    Option<IgnoredAnyEq>,
+    Option<Vec<Partial>>,
     /// TODO: complexity
     #[serde(default)]
     Option<IgnoredAnyEq>,
 );
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
-#[serde(try_from = "&str")]
-pub enum CoverageType {
-    #[default]
-    Line,
-    Branch,
-    Method,
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct CoverageDatapoint(
+    /// session id
+    u32,
+    /// coverage
+    PyreportCoverage,
+    /// coverage type
+    #[serde(default)]
+    Option<CoverageType>,
+    /// labels
+    #[serde(default)]
+    Option<Vec<String>>,
+);
+
+impl From<CoverageDatapoint> for types::CoverageDatapoint {
+    fn from(datapoint: CoverageDatapoint) -> Self {
+        Self {
+            session_id: datapoint.0,
+            _coverage: datapoint.1,
+            _coverage_type: datapoint.2,
+            labels: datapoint.3.unwrap_or_default(),
+        }
+    }
 }
 
 impl<'s> TryFrom<&'s str> for CoverageType {
@@ -328,33 +348,14 @@ impl<'s> TryFrom<&'s str> for CoverageType {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Coverage {
-    Partial,
-    BranchTaken(u32, u32),
-    HitCount(u32),
-}
-
-impl Into<PyreportCoverage> for Coverage {
-    fn into(self) -> PyreportCoverage {
-        match self {
-            Coverage::Partial => PyreportCoverage::Partial(),
-            Coverage::BranchTaken(covered, total) => {
-                PyreportCoverage::BranchesTaken { covered, total }
-            }
-            Coverage::HitCount(hits) => PyreportCoverage::HitCount(hits),
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for Coverage {
-    fn deserialize<D>(deserializer: D) -> Result<Coverage, D::Error>
+impl<'de> Deserialize<'de> for PyreportCoverage {
+    fn deserialize<D>(deserializer: D) -> Result<PyreportCoverage, D::Error>
     where
         D: de::Deserializer<'de>,
     {
         struct CoverageVisitor;
-        impl<'de> de::Visitor<'de> for CoverageVisitor {
-            type Value = Coverage;
+        impl de::Visitor<'_> for CoverageVisitor {
+            type Value = PyreportCoverage;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
                 formatter.write_str("a coverage value")
@@ -365,7 +366,7 @@ impl<'de> Deserialize<'de> for Coverage {
                 E: de::Error,
             {
                 if v {
-                    Ok(Coverage::Partial)
+                    Ok(PyreportCoverage::Partial())
                 } else {
                     Err(de::Error::invalid_value(de::Unexpected::Bool(v), &self))
                 }
@@ -375,7 +376,7 @@ impl<'de> Deserialize<'de> for Coverage {
             where
                 E: de::Error,
             {
-                Ok(Coverage::HitCount(value as u32))
+                Ok(PyreportCoverage::HitCount(value as u32))
             }
 
             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
@@ -387,11 +388,53 @@ impl<'de> Deserialize<'de> for Coverage {
 
                 let covered: u32 = covered.parse().map_err(|_| invalid())?;
                 let total: u32 = total.parse().map_err(|_| invalid())?;
-                Ok(Coverage::BranchTaken(covered, total))
+                Ok(PyreportCoverage::BranchesTaken { covered, total })
             }
         }
 
         deserializer.deserialize_any(CoverageVisitor)
+    }
+}
+
+impl<'de> Deserialize<'de> for MissingBranch {
+    fn deserialize<D>(deserializer: D) -> Result<MissingBranch, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        struct MissingBranchVisitor;
+        impl de::Visitor<'_> for MissingBranchVisitor {
+            type Value = MissingBranch;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a missing branch value")
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                let invalid = || de::Error::invalid_value(de::Unexpected::Str(v), &self);
+
+                if let Some((block, branch)) = v.split_once(":") {
+                    let block: u32 = block.parse().map_err(|_| invalid())?;
+                    let branch: u32 = branch.parse().map_err(|_| invalid())?;
+
+                    return Ok(MissingBranch::BlockAndBranch(block, branch));
+                }
+
+                if let Some(condition) = v.strip_suffix(":jump") {
+                    let condition: u32 = condition.parse().map_err(|_| invalid())?;
+
+                    // TODO(swatinem): can we skip saving the `jump` here?
+                    return Ok(MissingBranch::Condition(condition, Some("jump".into())));
+                }
+
+                let line: u32 = v.parse().map_err(|_| invalid())?;
+                Ok(MissingBranch::Line(line))
+            }
+        }
+
+        deserializer.deserialize_any(MissingBranchVisitor)
     }
 }
 
@@ -400,66 +443,61 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parsing_events() {
+    fn test_parsing_chunks() {
         let simple_line_record = LineRecord(
-            Coverage::HitCount(1),
+            PyreportCoverage::HitCount(1),
             None,
-            vec![LineSession(0, Coverage::HitCount(1), None, None, None)],
+            vec![LineSession(
+                0,
+                PyreportCoverage::HitCount(1),
+                None,
+                None,
+                None,
+            )],
             None,
             None,
             None,
         );
 
+        #[allow(clippy::type_complexity)]
         let cases: &[(
             &[u8], // input
-            HashMap<String, String>, // labels index
-            &[(&[u32], &[Option<LineRecord>])], // chunks: session ids, line records
+            &[&[Option<LineRecord>]], // chunks: line records
         )] = &[
             (
                 // Header and one chunk with an empty line
                 b"{}\n<<<<< end_of_header >>>>>\n{}\n",
-                HashMap::default(),
-                &[(&[], &[])],
+                &[&[]],
             ),
             (
                 // No header, one chunk with a populated line and an empty line
                 b"{}\n[1, null, [[0, 1]]]\n",
-                HashMap::default(),
-                &[(&[], &[Some(simple_line_record.clone())])],
+                &[&[Some(simple_line_record.clone())]],
             ),
             (
                 // No header, two chunks, the second having just one empty line
                 b"{}\n[1, null, [[0, 1]]]\n\n<<<<< end_of_chunk >>>>>\n{}\n",
-                HashMap::default(),
-                &[(&[], &[Some(simple_line_record.clone())]), (&[], &[])],
+                &[&[Some(simple_line_record.clone())],  &[]],
             ),
             (
                 // Header, two chunks, the second having multiple data lines and an empty line
                 b"{}\n<<<<< end_of_header >>>>>\n{}\n[1, null, [[0, 1]]]\n\n<<<<< end_of_chunk >>>>>\n{}\n[1, null, [[0, 1]]]\n[1, null, [[0, 1]]]\n",
-                HashMap::default(),
                 &[
-                    (&[], &[Some(simple_line_record.clone())]),
-                    (
-                        &[],
-                        &[
-                            Some(simple_line_record.clone()),
-                            Some(simple_line_record.clone()),
-                        ],
-                    ),
+                    &[Some(simple_line_record.clone())],
+                    &[
+                        Some(simple_line_record.clone()),
+                        Some(simple_line_record.clone()),
+                    ],
                 ],
             ),
         ];
 
-        for (input, expected_labels_index, expected_chunks) in cases {
+        for (input, expected_chunks) in cases {
             let chunks_file = ChunksFile::new(input).unwrap();
             let mut chunks = chunks_file.chunks();
 
-            assert_eq!(chunks_file.labels_index(), expected_labels_index);
-
-            for (expected_sessions, expected_line_records) in *expected_chunks {
+            for expected_line_records in *expected_chunks {
                 let mut chunk = chunks.next_chunk().unwrap().unwrap();
-
-                assert_eq!(chunk.present_sessions(), *expected_sessions);
 
                 let mut lines = vec![];
                 while let Some(line) = chunk.next_line().unwrap() {

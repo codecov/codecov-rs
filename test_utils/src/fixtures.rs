@@ -66,9 +66,11 @@ pub fn read_fixture(
     name: &str,
 ) -> Result<Vec<u8>, &'static str> {
     // Just make sure the file exists and that it has been pulled from Git LFS
-    let _file = open_fixture(format, size, name)?;
+    let mut file = open_fixture(format, size, name)?;
 
     // Actually read and return the contents
-    let path = fixture_dir(format, size).join(name);
-    std::fs::read(path).map_err(|_| "failed to read file")
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf)
+        .map_err(|_| "failed to read file")?;
+    Ok(buf)
 }

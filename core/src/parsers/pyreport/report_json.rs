@@ -214,7 +214,7 @@ struct Session {
     session_extras: Option<Value>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ParsedReportJson {
     pub files: HashMap<usize, i64>,
     pub sessions: HashMap<usize, i64>,

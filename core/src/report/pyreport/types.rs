@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use serde::Deserialize;
+
 pub use super::super::models::CoverageType;
 use crate::parsers::json::JsonVal;
 #[cfg(doc)]
@@ -10,7 +12,7 @@ use crate::report::models;
 ///
 /// Most of the time, we can parse this field into a `HitCount` or
 /// `BranchesTaken`.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PyreportCoverage {
     /// Contains the number of times the target was hit (or sometimes just 0 or
     /// 1). Most formats represent line and method coverage this way. In some
@@ -41,7 +43,7 @@ pub enum Complexity {
 }
 
 /// Enum representing the possible shapes of data about missing branch coverage.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MissingBranch {
     /// Identifies a specific branch by its "block" and "branch" numbers chosen
     /// by the instrumentation. Lcov does it this way.
@@ -57,7 +59,7 @@ pub enum MissingBranch {
 }
 
 /// Struct representing a subspan of a single line and its coverage status.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Partial {
     pub start_col: Option<u32>,
     pub end_col: Option<u32>,
@@ -122,7 +124,7 @@ pub enum RawLabel {
 /// An object that is similar to a [`LineSession`], containing coverage
 /// measurements specific to a session. It is mostly redundant and ignored in
 /// this parser, save for the `labels` field which is not found anywhere else.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct CoverageDatapoint {
     /// This ID indicates which session the measurement was taken in. It can be
     /// used as a key in `buf.state.report_json_sessions` to get the ID of a

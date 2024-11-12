@@ -95,9 +95,12 @@
  * and cast back to `u64` when querying.
  */
 
+use serde::Deserialize;
+
 use crate::parsers::json::JsonVal;
 
-#[derive(PartialEq, Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(try_from = "&str")]
 pub enum CoverageType {
     #[default]
     Line = 1,
