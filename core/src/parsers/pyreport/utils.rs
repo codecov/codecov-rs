@@ -78,7 +78,7 @@ fn create_model_sets_for_line_session<R: Report, B: ReportBuilder<R>>(
     coverage_type: &models::CoverageType,
     line_no: i64,
     datapoint: Option<&CoverageDatapoint>,
-    ctx: &mut ParseCtx<R, B>,
+    ctx: &ParseCtx<R, B>,
 ) -> LineSessionModels {
     let source_file_id = ctx.report_json_files[&ctx.chunk.index];
     let (hits, hit_branches, total_branches) = separate_pyreport_coverage(&line_session.coverage);
@@ -184,32 +184,30 @@ fn create_model_sets_for_line_session<R: Report, B: ReportBuilder<R>>(
     }
 }
 
-fn create_model_sets_for_report_line<R: Report, B: ReportBuilder<R>>(
-    report_line: &ReportLine,
-    ctx: &mut ParseCtx<R, B>,
-) -> Vec<LineSessionModels> {
+fn create_model_sets_for_report_line<'a, R: Report, B: ReportBuilder<R>>(
+    report_line: &'a ReportLine,
+    ctx: &'a ParseCtx<R, B>,
+) -> impl Iterator<Item = LineSessionModels> + 'a {
     // A `ReportLine` is a collection of `LineSession`s, and each `LineSession` has
     // a set of models we need to insert for it. Build a list of those sets of
     // models.
-    let mut line_session_models = vec![];
-    for line_session in &report_line.sessions {
+    report_line.sessions.iter().map(|session| {
         // Datapoints are effectively `LineSession`-scoped, but they don't actually live
         // in the `LineSession`. Get the `CoverageDatapoint` for this
         // `LineSession` if there is one.
         let datapoint = if let Some(Some(datapoints)) = &report_line.datapoints {
-            datapoints.get(&(line_session.session_id as u32))
+            datapoints.get(&(session.session_id as u32))
         } else {
             None
         };
-        line_session_models.push(create_model_sets_for_line_session(
-            line_session,
+        create_model_sets_for_line_session(
+            session,
             &report_line.coverage_type,
             report_line.line_no,
             datapoint,
             ctx,
-        ));
-    }
-    line_session_models
+        )
+    })
 }
 
 /// Each [`ReportLine`] from a chunks file is comprised of a number of
@@ -231,12 +229,9 @@ pub fn save_report_lines<R: Report, B: ReportBuilder<R>>(
     // assigned as a side-effect of this insertion. That lets us populate the
     // `local_sample_id` foreign key on all of the models associated with each
     // `CoverageSample`.
-    ctx.db.report_builder.multi_insert_coverage_sample(
-        models
-            .iter_mut()
-            .map(|LineSessionModels { sample, .. }| sample)
-            .collect(),
-    )?;
+    ctx.db
+        .report_builder
+        .multi_insert_coverage_sample(models.iter_mut().map(|m| &mut m.sample))?;
 
     // Populate `local_sample_id` and insert all of the context assocs for each
     // `LineSession` (if there are any)
@@ -921,10 +916,11 @@ mod tests {
             datapoints: None,
         };
 
-        let model_sets = create_model_sets_for_report_line(&report_line, parse_ctx);
+        let model_sets: Vec<_> =
+            create_model_sets_for_report_line(&report_line, parse_ctx).collect();
         assert_eq!(
             model_sets,
-            vec![
+            &[
                 LineSessionModels {
                     sample: models::CoverageSample {
                         raw_upload_id: 123,
@@ -1018,10 +1014,11 @@ mod tests {
             datapoints: Some(Some(datapoints)),
         };
 
-        let model_sets = create_model_sets_for_report_line(&report_line, parse_ctx);
+        let model_sets: Vec<_> =
+            create_model_sets_for_report_line(&report_line, parse_ctx).collect();
         assert_eq!(
             model_sets,
-            vec![
+            &[
                 LineSessionModels {
                     sample: models::CoverageSample {
                         raw_upload_id: 123,

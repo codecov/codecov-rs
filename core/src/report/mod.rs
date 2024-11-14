@@ -63,9 +63,9 @@ pub trait ReportBuilder<R: Report> {
     /// passed-in models' `local_sample_id` fields are ignored and overwritten
     /// with values that are unique among all `CoverageSample`s with the same
     /// `raw_upload_id`.
-    fn multi_insert_coverage_sample(
+    fn multi_insert_coverage_sample<'a>(
         &mut self,
-        samples: Vec<&mut models::CoverageSample>,
+        samples: impl ExactSizeIterator<Item = &'a mut models::CoverageSample>,
     ) -> Result<()>;
 
     /// Create a [`models::BranchesData`] record and return it. The passed-in
