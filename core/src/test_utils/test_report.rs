@@ -93,9 +93,9 @@ impl ReportBuilder<TestReport> for TestReportBuilder {
         Ok(sample)
     }
 
-    fn multi_insert_coverage_sample(
+    fn multi_insert_coverage_sample<'a>(
         &mut self,
-        samples: Vec<&mut CoverageSample>,
+        samples: impl ExactSizeIterator<Item = &'a mut CoverageSample>,
     ) -> error::Result<()> {
         self.report
             .samples

@@ -102,9 +102,11 @@ pub trait Insertable {
         Ok(())
     }
 
-    fn multi_insert<'a, I>(mut models: I, conn: &rusqlite::Connection) -> Result<()>
+    fn multi_insert<'a>(
+        mut models: impl ExactSizeIterator<Item = &'a Self>,
+        conn: &rusqlite::Connection,
+    ) -> Result<()>
     where
-        I: Iterator<Item = &'a Self> + ExactSizeIterator,
         Self: 'a,
     {
         let chunk_size = Self::maximum_chunk_size(conn);

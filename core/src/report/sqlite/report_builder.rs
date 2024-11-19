@@ -95,9 +95,9 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilder {
         self.transaction()?.insert_coverage_sample(sample)
     }
 
-    fn multi_insert_coverage_sample(
+    fn multi_insert_coverage_sample<'a>(
         &mut self,
-        samples: Vec<&mut models::CoverageSample>,
+        samples: impl ExactSizeIterator<Item = &'a mut models::CoverageSample>,
     ) -> Result<()> {
         self.transaction()?.multi_insert_coverage_sample(samples)
     }
@@ -237,14 +237,17 @@ impl ReportBuilder<SqliteReport> for SqliteReportBuilderTx<'_> {
         Ok(sample)
     }
 
-    fn multi_insert_coverage_sample(
+    fn multi_insert_coverage_sample<'a>(
         &mut self,
-        mut samples: Vec<&mut models::CoverageSample>,
+        samples: impl ExactSizeIterator<Item = &'a mut models::CoverageSample>,
     ) -> Result<()> {
-        for sample in &mut samples {
-            sample.local_sample_id = self.id_sequence.next().unwrap();
-        }
-        models::CoverageSample::multi_insert(samples.iter().map(|v| &**v), &self.conn)?;
+        models::CoverageSample::multi_insert(
+            samples.map(|sample| {
+                sample.local_sample_id = self.id_sequence.next().unwrap();
+                &*sample
+            }),
+            &self.conn,
+        )?;
         Ok(())
     }
 
@@ -452,7 +455,7 @@ mod tests {
             .insert_raw_upload(Default::default())
             .unwrap();
 
-        let mut samples: Vec<models::CoverageSample> = vec![
+        let mut samples = vec![
             models::CoverageSample {
                 source_file_id: file.id,
                 raw_upload_id: raw_upload.id,
@@ -461,7 +464,7 @@ mod tests {
             5
         ];
         report_builder
-            .multi_insert_coverage_sample(samples.iter_mut().collect())
+            .multi_insert_coverage_sample(samples.iter_mut())
             .unwrap();
 
         let report = report_builder.build().unwrap();
