@@ -12,7 +12,11 @@ testing = []
 include_dir = "0.7.3"
 memmap2 = "0.9.5"
 rand = "0.8.5"
-rusqlite = { version = "0.31.0", features = ["bundled", "limits", "serde_json"] }
+rusqlite = { version = "0.31.0", features = [
+    "bundled",
+    "limits",
+    "serde_json",
+] }
 rusqlite_migration = { version = "1.2.0", features = ["from-directory"] }
 seahash = "4.1.0"
 serde = { version = "1.0.210", features = ["derive"] }
@@ -21,7 +25,7 @@ thiserror = "1.0.64"
 winnow = "0.5.34"
 
 [dev-dependencies]
-divan = "0.1.14"
+criterion = { version = "2.7.2", package = "codspeed-criterion-compat" }
 tempfile = "3.9.0"
 test_utils = { path = "../test_utils" }
 
