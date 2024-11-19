@@ -13,7 +13,7 @@
 use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 
 use super::super::models::*;
-use crate::{error::Result, parsers::json::JsonVal};
+use crate::error::Result;
 
 /// Takes care of the boilerplate to insert a model into the database.
 /// Implementers must provide three things:
@@ -142,8 +142,8 @@ pub trait Insertable {
 
 /// Can't implement foreign traits (`ToSql`/`FromSql`) on foreign types
 /// (`serde_json::Value`) so this helper function fills in.
-pub fn json_value_from_sql(s: String, col: usize) -> rusqlite::Result<JsonVal> {
-    serde_json::from_str(s.as_str()).map_err(|e| {
+pub fn json_value_from_sql(s: String, col: usize) -> rusqlite::Result<serde_json::Value> {
+    serde_json::from_str(&s).map_err(|e| {
         rusqlite::Error::FromSqlConversionFailure(col, rusqlite::types::Type::Text, Box::new(e))
     })
 }
@@ -556,13 +556,9 @@ mod tests {
     use serde_json::json;
     use tempfile::TempDir;
 
-    use super::{
-        super::{
-            super::{Report, ReportBuilder},
-            SqliteReport, SqliteReportBuilder,
-        },
-        *,
-    };
+    use super::super::super::{Report, ReportBuilder};
+    use super::super::{SqliteReport, SqliteReportBuilder};
+    use super::*;
 
     #[derive(PartialEq, Debug)]
     struct TestModel {

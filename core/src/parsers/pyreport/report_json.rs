@@ -163,13 +163,12 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use serde::{de::IgnoredAny, Deserialize};
+use serde::de::IgnoredAny;
+use serde::Deserialize;
 use serde_json::Value;
 
-use crate::{
-    error::CodecovError,
-    report::{models, Report, ReportBuilder},
-};
+use crate::error::CodecovError;
+use crate::report::{models, Report, ReportBuilder};
 
 #[derive(Debug, Deserialize)]
 struct ReportJson {
@@ -214,7 +213,7 @@ struct Session {
     session_extras: Option<Value>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ParsedReportJson {
     pub files: HashMap<usize, i64>,
     pub sessions: HashMap<usize, i64>,

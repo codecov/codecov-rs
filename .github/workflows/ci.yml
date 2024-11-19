@@ -20,7 +20,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - run: rustup toolchain install nightly --profile minimal --component rustfmt --component clippy --no-self-update
+      - run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy --no-self-update
+      - uses: Swatinem/rust-cache@v2
 
       - run: cargo fmt --all -- --check
       - run: cargo clippy --all-features --workspace --tests --examples -- -D clippy::all
@@ -46,7 +47,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - run: rustup toolchain install nightly --profile minimal --no-self-update
+      - run: rustup toolchain install stable --profile minimal --no-self-update
+      - uses: Swatinem/rust-cache@v2
 
       - run: cargo test --workspace --all-features --doc
       - run: cargo doc --workspace --all-features --document-private-items --no-deps
@@ -56,15 +58,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
-      - run: rustup toolchain install nightly --profile minimal --no-self-update
+      - run: rustup toolchain install stable --profile minimal --no-self-update
+      - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: taiki-e/install-action@nextest
 
-      # FIXME(swatinem): We should pass `--all-targets` to also compile and tests benchmarks
-      # Though currently `divan` does not support all CLI arguments as used by `nextest`,
-      # and benchmarks are unbearably slow anyway, so its not feasible to run in debug builds.
-      - run: cargo llvm-cov nextest --lcov --output-path core.lcov --workspace --all-features
+      - run: cargo llvm-cov nextest --lcov --output-path core.lcov --workspace --all-features --all-targets
       - run: mv target/nextest/default/core-test-results.xml .
 
       - uses: actions/setup-python@v5

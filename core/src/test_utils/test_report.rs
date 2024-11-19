@@ -1,13 +1,9 @@
-use crate::{
-    error,
-    report::{
-        models::{
-            BranchesData, Context, ContextAssoc, CoverageSample, MethodData, RawUpload,
-            ReportTotals, SourceFile, SpanData,
-        },
-        Report, ReportBuilder,
-    },
+use crate::error;
+use crate::report::models::{
+    BranchesData, Context, ContextAssoc, CoverageSample, MethodData, RawUpload, ReportTotals,
+    SourceFile, SpanData,
 };
+use crate::report::{Report, ReportBuilder};
 
 #[derive(Default)]
 pub struct TestReport {

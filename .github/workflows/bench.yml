@@ -16,7 +16,8 @@ jobs:
         with:
           lfs: true
 
-      - run: rustup toolchain install nightly --profile minimal --no-self-update
+      - run: rustup toolchain install stable --profile minimal --no-self-update
+      - uses: Swatinem/rust-cache@v2
       - uses: cargo-bins/cargo-binstall@main
       - run: cargo binstall cargo-codspeed
 
