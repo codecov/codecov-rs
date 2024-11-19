@@ -11,9 +11,9 @@
  * [`shared/reports/types.py`](https://github.com/codecov/shared/blob/main/shared/reports/types.py),
  * and [`shared/utils/sessions.py`](https://github.com/codecov/shared/blob/main/shared/utils/sessions.py).
  *
- * Parsers that will build a [`SQLiteReport`] from these parts live in
+ * Parsers that will build a [`SqliteReport`] from these parts live in
  * [`crate::parsers::pyreport`] but code that will convert a
- * [`SQLiteReport`] back into a Pyreport lives here.
+ * [`SqliteReport`] back into a Pyreport lives here.
  *
  * # Report JSON
  *

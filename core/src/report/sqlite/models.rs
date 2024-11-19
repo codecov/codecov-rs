@@ -954,7 +954,6 @@ mod tests {
             env: Some("env".to_string()),
             session_type: Some("uploaded".to_string()),
             session_extras: Some(json!({})),
-            ..Default::default()
         };
 
         model.insert(&ctx.report.conn).unwrap();

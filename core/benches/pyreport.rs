@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use codecov_rs::{
     parsers::pyreport::{chunks, report_json},
-    report::test::{TestReport, TestReportBuilder},
+    test_utils::test_report::{TestReport, TestReportBuilder},
 };
 use divan::Bencher;
 use test_utils::fixtures::{read_fixture, FixtureFormat::Pyreport, FixtureSize::Large};
