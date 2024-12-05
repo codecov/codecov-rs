@@ -87,7 +87,7 @@ jobs:
 
       - name: Upload coverage data to Codecov
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           files: ./core.lcov,./bindings.lcov,./.coverage
           token: ${{ secrets.CODECOV_ORG_TOKEN }}
