@@ -1,15 +1,10 @@
 use super::chunks::ParseCtx;
-use crate::{
-    error::Result,
-    report::{
-        models,
-        pyreport::types::{
-            Complexity, CoverageDatapoint, LineSession, MissingBranch, Partial, PyreportCoverage,
-            ReportLine,
-        },
-        Report, ReportBuilder,
-    },
+use crate::error::Result;
+use crate::report::pyreport::types::{
+    Complexity, CoverageDatapoint, LineSession, MissingBranch, Partial, PyreportCoverage,
+    ReportLine,
 };
+use crate::report::{models, Report, ReportBuilder};
 
 fn separate_pyreport_complexity(complexity: &Complexity) -> (Option<i64>, Option<i64>) {
     let (covered, total) = match complexity {
@@ -231,7 +226,7 @@ pub fn save_report_lines<R: Report, B: ReportBuilder<R>>(
     // assigned as a side-effect of this insertion. That lets us populate the
     // `local_sample_id` foreign key on all of the models associated with each
     // `CoverageSample`.
-    ctx.db.report_builder.multi_insert_coverage_sample(
+    ctx.report_builder.multi_insert_coverage_sample(
         models
             .iter_mut()
             .map(|LineSessionModels { sample, .. }| sample)
@@ -240,7 +235,7 @@ pub fn save_report_lines<R: Report, B: ReportBuilder<R>>(
 
     // Populate `local_sample_id` and insert all of the context assocs for each
     // `LineSession` (if there are any)
-    ctx.db.report_builder.multi_associate_context(
+    ctx.report_builder.multi_associate_context(
         models
             .iter_mut()
             .flat_map(|LineSessionModels { sample, assocs, .. }| {
@@ -254,7 +249,7 @@ pub fn save_report_lines<R: Report, B: ReportBuilder<R>>(
 
     // Populate `local_sample_id` and insert all of the `BranchesData` records for
     // each `LineSession` (if there are any)
-    ctx.db.report_builder.multi_insert_branches_data(
+    ctx.report_builder.multi_insert_branches_data(
         models
             .iter_mut()
             .flat_map(
@@ -272,7 +267,7 @@ pub fn save_report_lines<R: Report, B: ReportBuilder<R>>(
 
     // Populate `local_sample_id` and insert the single `MethodData` record for each
     // `LineSession` (if there is one)
-    ctx.db.report_builder.multi_insert_method_data(
+    ctx.report_builder.multi_insert_method_data(
         models
             .iter_mut()
             .filter_map(|LineSessionModels { sample, method, .. }| {
@@ -289,7 +284,7 @@ pub fn save_report_lines<R: Report, B: ReportBuilder<R>>(
     // Populate `local_sample_id` and insert all of the `SpanData` records for each
     // `LineSession` (if there are any). In a chunks file, only spans that are
     // subsets of a single line are recorded.
-    ctx.db.report_builder.multi_insert_span_data(
+    ctx.report_builder.multi_insert_span_data(
         models
             .iter_mut()
             .flat_map(
@@ -1190,7 +1185,7 @@ mod tests {
 
         // Now we actually run the function
         save_report_lines(&report_lines, &mut test_ctx.parse_ctx).unwrap();
-        let report = test_ctx.parse_ctx.db.report_builder.build().unwrap();
+        let report = test_ctx.parse_ctx.report_builder.build().unwrap();
 
         // Now we need to set up our mock expectations. There are a lot of them.
         // First thing that gets inserted is CoverageSample. We expect 4 of them,

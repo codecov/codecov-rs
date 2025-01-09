@@ -95,9 +95,10 @@
  * and cast back to `u64` when querying.
  */
 
-use crate::parsers::json::JsonVal;
+use serde::Deserialize;
 
-#[derive(PartialEq, Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(try_from = "&str")]
 pub enum CoverageType {
     #[default]
     Line = 1,
@@ -375,7 +376,7 @@ pub struct RawUpload {
     ///
     /// Ex: `["unit"]`
     /// Ex: `["integration", "windows"]`
-    pub flags: Option<JsonVal>,
+    pub flags: Option<serde_json::Value>,
 
     /// Key in the report JSON: `"c"`
     pub provider: Option<String>,
@@ -426,7 +427,7 @@ pub struct RawUpload {
     ///
     /// Ex: `{"carriedforward_from":
     /// "bcec3478e2a27bb7950f40388cf191834fb2d5a3"}`
-    pub session_extras: Option<JsonVal>,
+    pub session_extras: Option<serde_json::Value>,
 }
 
 /// Aggregated coverage metrics for lines, branches, and sessions in a report
