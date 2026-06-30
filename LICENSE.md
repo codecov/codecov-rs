@@ -6,7 +6,7 @@ FSL-1.0-Apache-2.0
 
 ## Notice
 
-Copyright 2008-2023 Functional Software, Inc. dba Sentry
+Copyright 2008-2026 Harness, Inc.
 
 ## Terms and Conditions
 
