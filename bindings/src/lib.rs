@@ -7,7 +7,7 @@ use crate::error::PyCodecovError;
 
 mod error;
 
-#[pyclass]
+#[pyclass(unsendable)]
 pub struct SqliteReportBuilder(report::SqliteReportBuilder);
 
 #[pymethods]
