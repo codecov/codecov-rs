@@ -6,7 +6,8 @@
  * - Some `ORDER BY` clauses are to make writing test cases simple and may
  *   not be necessary
  */
-use std::{path::PathBuf, sync::LazyLock};
+use std::path::PathBuf;
+use std::sync::LazyLock;
 
 use include_dir::{include_dir, Dir};
 use rusqlite::Connection;

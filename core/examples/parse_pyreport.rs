@@ -1,6 +1,10 @@
-use std::{env, fs::File, path::PathBuf};
+use std::env;
+use std::fs::File;
+use std::path::PathBuf;
 
-use codecov_rs::{error::Result, parsers::pyreport::parse_pyreport, report::SqliteReportBuilder};
+use codecov_rs::error::Result;
+use codecov_rs::parsers::pyreport::parse_pyreport;
+use codecov_rs::report::SqliteReportBuilder;
 
 fn usage_error() -> ! {
     println!("Usage:");

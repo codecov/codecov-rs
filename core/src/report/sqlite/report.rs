@@ -1,12 +1,11 @@
-use std::{fmt, path::PathBuf};
+use std::fmt;
+use std::path::PathBuf;
 
 use rusqlite::{Connection, OptionalExtension};
 
 use super::open_database;
-use crate::{
-    error::Result,
-    report::{models, Report},
-};
+use crate::error::Result;
+use crate::report::{models, Report};
 
 pub struct SqliteReport {
     pub filename: PathBuf,
@@ -182,7 +181,8 @@ mod tests {
     use rusqlite_migration::SchemaVersion;
     use tempfile::TempDir;
 
-    use super::{super::SqliteReportBuilder, *};
+    use super::super::SqliteReportBuilder;
+    use super::*;
     use crate::report::ReportBuilder;
 
     struct Ctx {

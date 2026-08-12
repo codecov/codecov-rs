@@ -256,10 +256,8 @@
  * - [`CoverageDatapoint`](https://github.com/codecov/shared/blob/f6c2c3852530192ab0c6b9fd0c0a800c2cbdb16f/shared/reports/types.py#L98)
  */
 
-use std::{
-    fs::File,
-    io::{BufWriter, Write},
-};
+use std::fs::File;
+use std::io::{BufWriter, Write};
 
 use super::SqliteReport;
 use crate::error::Result;

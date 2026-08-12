@@ -2,10 +2,9 @@ use std::path::PathBuf;
 
 use serde_json::json;
 
-use crate::{
-    error::Result,
-    report::{models, sqlite::Insertable, ReportBuilder, SqliteReport, SqliteReportBuilder},
-};
+use crate::error::Result;
+use crate::report::sqlite::Insertable;
+use crate::report::{models, ReportBuilder, SqliteReport, SqliteReportBuilder};
 
 pub fn build_sample_report(path: PathBuf) -> Result<SqliteReport> {
     let mut builder = SqliteReportBuilder::open(path)?;

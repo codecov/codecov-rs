@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
+use serde::Deserialize;
+
 pub use super::super::models::CoverageType;
-use crate::parsers::json::JsonVal;
 #[cfg(doc)]
 use crate::report::models;
 
@@ -10,7 +11,7 @@ use crate::report::models;
 ///
 /// Most of the time, we can parse this field into a `HitCount` or
 /// `BranchesTaken`.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PyreportCoverage {
     /// Contains the number of times the target was hit (or sometimes just 0 or
     /// 1). Most formats represent line and method coverage this way. In some
@@ -41,7 +42,7 @@ pub enum Complexity {
 }
 
 /// Enum representing the possible shapes of data about missing branch coverage.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MissingBranch {
     /// Identifies a specific branch by its "block" and "branch" numbers chosen
     /// by the instrumentation. Lcov does it this way.
@@ -57,7 +58,7 @@ pub enum MissingBranch {
 }
 
 /// Struct representing a subspan of a single line and its coverage status.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Partial {
     pub start_col: Option<u32>,
     pub end_col: Option<u32>,
@@ -122,7 +123,7 @@ pub enum RawLabel {
 /// An object that is similar to a [`LineSession`], containing coverage
 /// measurements specific to a session. It is mostly redundant and ignored in
 /// this parser, save for the `labels` field which is not found anywhere else.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct CoverageDatapoint {
     /// This ID indicates which session the measurement was taken in. It can be
     /// used as a key in `buf.state.report_json_sessions` to get the ID of a
@@ -174,7 +175,7 @@ pub struct ReportLine {
     pub sessions: Vec<LineSession>,
 
     /// Long forgotten field that takes up space.
-    pub _messages: Option<Option<JsonVal>>,
+    pub _messages: Option<Option<serde_json::Value>>,
 
     /// An aggregated complexity metric across all of the [`LineSession`]s in
     /// `sessions`.
@@ -185,6 +186,23 @@ pub struct ReportLine {
     /// label data is recorded (e.g. which test case was running when this
     /// measurement was collected).
     pub datapoints: Option<Option<HashMap<u32, CoverageDatapoint>>>,
+}
+
+impl ReportLine {
+    pub fn normalize(&mut self) {
+        // Fix issues like recording branch coverage with `CoverageType::Method`
+        let (correct_coverage, correct_type) =
+            normalize_coverage_measurement(&self.coverage, &self.coverage_type);
+        self.coverage = correct_coverage;
+        self.coverage_type = correct_type;
+
+        // Fix the `coverage` values in each `LineSession` as well
+        for line_session in &mut self.sessions {
+            let (correct_coverage, _) =
+                normalize_coverage_measurement(&line_session.coverage, &self.coverage_type);
+            line_session.coverage = correct_coverage;
+        }
+    }
 }
 
 /// Account for some quirks and malformed data. See code comments for details.

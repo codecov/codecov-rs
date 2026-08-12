@@ -1,9 +1,9 @@
-use std::{env, fs::File};
+use std::env;
+use std::fs::File;
 
-use codecov_rs::{
-    error::Result,
-    report::{pyreport::ToPyreport, SqliteReport},
-};
+use codecov_rs::error::Result;
+use codecov_rs::report::pyreport::ToPyreport;
+use codecov_rs::report::SqliteReport;
 
 fn usage_error() -> ! {
     println!("Usage:");
