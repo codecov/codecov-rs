@@ -188,14 +188,14 @@ fn create_model_sets_for_report_line<R: Report, B: ReportBuilder<R>>(
     report_line: &ReportLine,
     ctx: &mut ParseCtx<R, B>,
 ) -> Vec<LineSessionModels> {
-    // A `ReportLine` is a collection of `LineSession`s, and each `LineSession` has
-    // a set of models we need to insert for it. Build a list of those sets of
-    // models.
+    // A `ReportLine` is a collection of `LineSession`s, and each `LineSession`
+    // has a set of models we need to insert for it. Build a list of those
+    // sets of models.
     let mut line_session_models = vec![];
     for line_session in &report_line.sessions {
-        // Datapoints are effectively `LineSession`-scoped, but they don't actually live
-        // in the `LineSession`. Get the `CoverageDatapoint` for this
-        // `LineSession` if there is one.
+        // Datapoints are effectively `LineSession`-scoped, but they don't
+        // actually live in the `LineSession`. Get the
+        // `CoverageDatapoint` for this `LineSession` if there is one.
         let datapoint = if let Some(Some(datapoints)) = &report_line.datapoints {
             datapoints.get(&(line_session.session_id as u32))
         } else {
@@ -252,8 +252,8 @@ pub fn save_report_lines<R: Report, B: ReportBuilder<R>>(
             .collect(),
     )?;
 
-    // Populate `local_sample_id` and insert all of the `BranchesData` records for
-    // each `LineSession` (if there are any)
+    // Populate `local_sample_id` and insert all of the `BranchesData` records
+    // for each `LineSession` (if there are any)
     ctx.db.report_builder.multi_insert_branches_data(
         models
             .iter_mut()
@@ -270,8 +270,8 @@ pub fn save_report_lines<R: Report, B: ReportBuilder<R>>(
             .collect(),
     )?;
 
-    // Populate `local_sample_id` and insert the single `MethodData` record for each
-    // `LineSession` (if there is one)
+    // Populate `local_sample_id` and insert the single `MethodData` record for
+    // each `LineSession` (if there is one)
     ctx.db.report_builder.multi_insert_method_data(
         models
             .iter_mut()
@@ -286,9 +286,9 @@ pub fn save_report_lines<R: Report, B: ReportBuilder<R>>(
             .collect(),
     )?;
 
-    // Populate `local_sample_id` and insert all of the `SpanData` records for each
-    // `LineSession` (if there are any). In a chunks file, only spans that are
-    // subsets of a single line are recorded.
+    // Populate `local_sample_id` and insert all of the `SpanData` records for
+    // each `LineSession` (if there are any). In a chunks file, only spans
+    // that are subsets of a single line are recorded.
     ctx.db.report_builder.multi_insert_span_data(
         models
             .iter_mut()
@@ -1086,8 +1086,9 @@ mod tests {
         test_ctx.parse_ctx.chunk.current_line = 1;
         test_ctx.parse_ctx.chunk.index = 0;
 
-        // Sample input: 1 line (2 sessions), 1 branch (1 session), 1 method (1 session)
-        // BranchesData, SpanData, MethodData, and ContextAssoc will all get inserted
+        // Sample input: 1 line (2 sessions), 1 branch (1 session), 1 method (1
+        // session) BranchesData, SpanData, MethodData, and ContextAssoc
+        // will all get inserted
         let report_lines = vec![
             // ReportLine 1: a line with 2 sessions, 1 datapoint, 1 label
             ReportLine {
@@ -1193,9 +1194,9 @@ mod tests {
         let report = test_ctx.parse_ctx.db.report_builder.build().unwrap();
 
         // Now we need to set up our mock expectations. There are a lot of them.
-        // First thing that gets inserted is CoverageSample. We expect 4 of them,
-        // one for each LineSession. Our first ReportLine has 2 sessions, and the
-        // other two have 1 session each, so 4 total.
+        // First thing that gets inserted is CoverageSample. We expect 4 of
+        // them, one for each LineSession. Our first ReportLine has 2
+        // sessions, and the other two have 1 session each, so 4 total.
         assert_eq!(
             report.samples,
             &[
@@ -1239,9 +1240,10 @@ mod tests {
             ]
         );
 
-        // Next thing to go is ContextAssoc. Only 3 LineSessions have a corresponding
-        // CoverageDatapoint, and each CoverageDatapoint only has one label.
-        // "test_label" is context_id==50 and "test_label_2" is context_id==51
+        // Next thing to go is ContextAssoc. Only 3 LineSessions have a
+        // corresponding CoverageDatapoint, and each CoverageDatapoint
+        // only has one label. "test_label" is context_id==50 and
+        // "test_label_2" is context_id==51
         assert_eq!(
             report.assocs,
             &[
@@ -1266,9 +1268,9 @@ mod tests {
             ]
         );
 
-        // Then we do BranchesData. Our branch ReportLine has a single LineSession, and
-        // that LineSession has a `branches` field with two missing branches in
-        // it.
+        // Then we do BranchesData. Our branch ReportLine has a single
+        // LineSession, and that LineSession has a `branches` field with
+        // two missing branches in it.
         assert_eq!(
             report.branches,
             &[
@@ -1293,8 +1295,8 @@ mod tests {
             ]
         );
 
-        // Then we do MethodData. Our method ReportLine has a single session, and that
-        // single session has its complexity field filled in.
+        // Then we do MethodData. Our method ReportLine has a single session,
+        // and that single session has its complexity field filled in.
         assert_eq!(
             report.methods,
             &[models::MethodData {
@@ -1307,9 +1309,9 @@ mod tests {
             }]
         );
 
-        // Then we do SpanData. Our first ReportLine has two sessions, one without any
-        // partials and one with a single partial. So, we need to create a
-        // single SpanData for that partial.
+        // Then we do SpanData. Our first ReportLine has two sessions, one
+        // without any partials and one with a single partial. So, we
+        // need to create a single SpanData for that partial.
         assert_eq!(
             report.spans,
             &[models::SpanData {

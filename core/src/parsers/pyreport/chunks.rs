@@ -436,9 +436,10 @@ where
 {
     buf.state.chunk.current_line += 1;
 
-    // A line is empty if the next character is `\n` or EOF. We don't consume that
-    // next character from the stream though - we leave it there as either the
-    // delimeter between lines or part of `CHUNKS_FILE_END_OF_CHUNK`.
+    // A line is empty if the next character is `\n` or EOF. We don't consume
+    // that next character from the stream though - we leave it there as
+    // either the delimeter between lines or part of
+    // `CHUNKS_FILE_END_OF_CHUNK`.
     let empty_line = peek(alt((eof, "\n"))).map(|_| None);
     let populated_line = report_line.map(Some);
     alt((populated_line, empty_line))
@@ -490,8 +491,8 @@ where
     utils::save_report_lines(parsed_lines.as_slice(), &mut buf.state)
         .map_err(|e| ErrMode::from_external_error(buf, ErrorKind::Fail, e))?;
 
-    // Advance our chunk index so we can associate the data from the next chunk with
-    // the correct file from the report JSON.
+    // Advance our chunk index so we can associate the data from the next chunk
+    // with the correct file from the report JSON.
     buf.state.chunk.index += 1;
 
     Ok(())
@@ -1256,18 +1257,21 @@ mod tests {
             ("1".to_string(), 101),
         ]);
 
-        // Parsing a label that is already in `labels_index` should just return it
+        // Parsing a label that is already in `labels_index` should just return
+        // it
         buf.input = "\"already_inserted\"";
         assert_eq!(
             label.parse_next(&mut buf),
             Ok("already_inserted".to_string())
         );
 
-        // If we parse a number like `1`, we should look for `"1"` in the labels index.
+        // If we parse a number like `1`, we should look for `"1"` in the labels
+        // index.
         buf.input = "1";
         assert_eq!(label.parse_next(&mut buf), Ok("1".to_string()));
 
-        // Parsing a label that is not already in `labels_index` should insert it
+        // Parsing a label that is not already in `labels_index` should insert
+        // it
         buf.input = "\"not_already_inserted\"";
         assert_eq!(
             label.parse_next(&mut buf),
