@@ -125,8 +125,8 @@ pub trait Insertable {
 
         // then: insert the remainder
         if models.len() > 0 {
-            // this statement is not cached, as the number of models / params can be
-            // different for every call
+            // this statement is not cached, as the number of models / params
+            // can be different for every call
             let mut remainder_stmt = conn.prepare(&Self::build_query(models.len()))?;
 
             for row in models {
@@ -666,8 +666,9 @@ mod tests {
     fn test_test_model_multi_insert() {
         let ctx = setup();
 
-        // Our chunk-size is set to 50, so inserting more than twice that will use
-        // multiple chunks, as well as using single inserts for the remainder.
+        // Our chunk-size is set to 50, so inserting more than twice that will
+        // use multiple chunks, as well as using single inserts for the
+        // remainder.
 
         let models_to_insert: Vec<_> = (0..111)
             .map(|id| TestModel {

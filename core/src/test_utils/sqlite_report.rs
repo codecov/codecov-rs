@@ -27,8 +27,8 @@ pub fn build_sample_report(path: PathBuf) -> Result<SqliteReport> {
         session_type: Some("type upload 1".to_string()),
         session_extras: Some(json!({"k1": "v1"})),
     };
-    // Insert directly, not through report builder, because we don't want a random
-    // ID
+    // Insert directly, not through report builder, because we don't want a
+    // random ID
     upload_1.insert(&builder.conn)?;
 
     let upload_2 = models::RawUpload {
@@ -46,8 +46,8 @@ pub fn build_sample_report(path: PathBuf) -> Result<SqliteReport> {
         session_type: Some("type upload 2".to_string()),
         session_extras: Some(json!({"k2": "v2"})),
     };
-    // Insert directly, not through report builder, because we don't want a random
-    // ID
+    // Insert directly, not through report builder, because we don't want a
+    // random ID
     upload_2.insert(&builder.conn)?;
 
     let line_1 = builder.insert_coverage_sample(models::CoverageSample {
