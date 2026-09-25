@@ -56,16 +56,17 @@ fn maybe_write_current_line(
     last_populated_line: i64,
 ) -> Result<i64> {
     if let Some((line_no, line_values)) = current_line {
-        // If last_populated_line is 6 and we're dealing with 7, this loop does not have
-        // to write any newlines. If last_populated_line is 0 (its starting value) and
-        // we're dealing with 1 (the first line), same story.
+        // If last_populated_line is 6 and we're dealing with 7, this loop does
+        // not have to write any newlines. If last_populated_line is 0
+        // (its starting value) and we're dealing with 1 (the first
+        // line), same story.
         for _ in last_populated_line..line_no - 1 {
             writeln!(output)?;
         }
 
-        // Every line is preceded by, but not followed by, a newline. When starting a
-        // new chunk, the cursor will be at the end of the header object on the
-        // line before data is supposed to start.
+        // Every line is preceded by, but not followed by, a newline. When
+        // starting a new chunk, the cursor will be at the end of the
+        // header object on the line before data is supposed to start.
         write!(output, "\n{}", array_without_trailing_nulls(line_values))?;
         Ok(line_no)
     } else {
@@ -225,8 +226,8 @@ pub fn sql_to_chunks(report: &SqliteReport, output: &mut impl Write) -> Result<(
         "{chunks_file_header}{CHUNKS_FILE_HEADER_TERMINATOR}"
     )?;
 
-    // TODO: query from chunk_indices rather than samples in case there are chunks
-    // with no samples?
+    // TODO: query from chunk_indices rather than samples in case there are
+    // chunks with no samples?
     let mut stmt = report
         .conn
         .prepare_cached(include_str!("queries/samples_to_chunks.sql"))?;
@@ -235,10 +236,10 @@ pub fn sql_to_chunks(report: &SqliteReport, output: &mut impl Write) -> Result<(
     let mut current_chunk: Option<i64> = None;
     let mut last_populated_line = 0;
 
-    // Each row in our query results corresponds to a single session, and a line can
-    // have several sessions. We build up the current line over many rows, and
-    // when we get to a row for a new line, we write the current line and then
-    // start building the new one.
+    // Each row in our query results corresponds to a single session, and a line
+    // can have several sessions. We build up the current line over many
+    // rows, and when we get to a row for a new line, we write the current
+    // line and then start building the new one.
     let mut current_report_line: Option<(i64, JsonVal)> = None;
 
     while let Some(row) = rows.next()? {
@@ -257,12 +258,13 @@ pub fn sql_to_chunks(report: &SqliteReport, output: &mut impl Write) -> Result<(
             current_report_line = Some(build_report_line_from_row(row)?);
 
             if is_new_chunk {
-                // Each chunk has a header which may contain a list of sessions that have
-                // measurements for lines in that chunk.
+                // Each chunk has a header which may contain a list of sessions
+                // that have measurements for lines in that
+                // chunk.
                 let present_sessions = row.get(9).and_then(|s| json_value_from_sql(s, 9))?;
 
-                // The first chunk should not be preceded by the `END_OF_CHUNK` header but all
-                // others should be.
+                // The first chunk should not be preceded by the `END_OF_CHUNK`
+                // header but all others should be.
                 let delimiter = if current_chunk.is_none() {
                     ""
                 } else {
@@ -292,9 +294,9 @@ pub fn sql_to_chunks(report: &SqliteReport, output: &mut impl Write) -> Result<(
         let session = build_line_session_from_row(row)?;
         line_sessions.push(session);
 
-        // If there are any datapoints for this line session, create/append to the
-        // report line's `datapoints` field. Otherwise this should remain null and be
-        // stripped.
+        // If there are any datapoints for this line session, create/append to
+        // the report line's `datapoints` field. Otherwise this should
+        // remain null and be stripped.
         if let Some(datapoint) = build_datapoint_from_row(row)? {
             if report_line_values.get(5) == Some(&JsonVal::Null) {
                 report_line_values[5] = json!([datapoint]);
@@ -303,9 +305,9 @@ pub fn sql_to_chunks(report: &SqliteReport, output: &mut impl Write) -> Result<(
             }
         }
     }
-    // The loop writes each line when it gets to the first row from the next line.
-    // There are no rows following the last line, so we have to manually write
-    // it here.
+    // The loop writes each line when it gets to the first row from the next
+    // line. There are no rows following the last line, so we have to
+    // manually write it here.
     maybe_write_current_line(current_report_line, output, last_populated_line)?;
 
     Ok(())
@@ -724,7 +726,8 @@ mod tests {
 {file_1_line_8}"
         );
 
-        // Leaving this here because it makes debugging easier if this breaks later
+        // Leaving this here because it makes debugging easier if this breaks
+        // later
         for (i, (l, r)) in std::iter::zip(chunks.lines(), expected.lines()).enumerate() {
             println!("actual {}  : {}", i, l);
             println!("expected {}: {}", i, r);
