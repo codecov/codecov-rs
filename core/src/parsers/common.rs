@@ -164,8 +164,8 @@ pub mod winnow {
                 nullable(alpha1::<&str, ContextError>).parse_peek("abcde"),
                 Ok(("", Some("abcde")))
             );
-            // this is an edge case - `alpha1` has no problem matching `"null"` so we should
-            // let it
+            // this is an edge case - `alpha1` has no problem matching `"null"`
+            // so we should let it
             assert_eq!(
                 nullable(alpha1::<&str, ContextError>).parse_peek("null"),
                 Ok(("", Some("null")))
