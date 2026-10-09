@@ -369,7 +369,8 @@ mod tests {
             ))
         );
 
-        // same test case as above but with superfluous whitespace peppered around
+        // same test case as above but with superfluous whitespace peppered
+        // around
         assert_eq!(
             parse_array
                 .parse_peek("[ 3    ,null ,  true , \n\t\tfalse, \t \"str\", [\n], {\r  \t \n}  ]"),

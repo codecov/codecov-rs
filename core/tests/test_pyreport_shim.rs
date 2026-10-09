@@ -55,8 +55,8 @@ fn test_parse_report_json() {
     let contexts = report.list_contexts().unwrap();
     assert!(contexts.is_empty());
 
-    // The inserted RawUpload has a random ID that we need to work around for our
-    // asserts
+    // The inserted RawUpload has a random ID that we need to work around for
+    // our asserts
     let uploads = report.list_raw_uploads().unwrap();
     assert_eq!(uploads.len(), 1);
 
