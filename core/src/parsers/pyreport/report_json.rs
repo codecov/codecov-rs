@@ -173,7 +173,8 @@ use crate::{
 
 #[derive(Debug, Deserialize)]
 struct ReportJson {
-    // NOTE: these two are `BTreeMap` only to have stable iteration order in tests
+    // NOTE: these two are `BTreeMap` only to have stable iteration order in
+    // tests
     files: BTreeMap<String, File>,
     sessions: BTreeMap<usize, Session>,
 }
