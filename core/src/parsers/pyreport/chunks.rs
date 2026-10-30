@@ -208,8 +208,9 @@ where
     delimited(
         ('[', ws),
         alt((
-            // Match 1 or more in the first two cases. If we matched 0 or more, the first case
-            // would technically always succeed and never try later ones.
+            // Match 1 or more in the first two cases. If we matched 0 or more,
+            // the first case would technically always succeed and never try
+            // later ones.
             separated(1.., line, (ws, ',', ws)),
             separated(1.., block_and_branch, (ws, ',', ws)),
             // Match 0 or more in the last case to allow for an empty list.
@@ -436,9 +437,9 @@ where
 {
     buf.state.chunk.current_line += 1;
 
-    // A line is empty if the next character is `\n` or EOF. We don't consume that
-    // next character from the stream though - we leave it there as either the
-    // delimeter between lines or part of `CHUNKS_FILE_END_OF_CHUNK`.
+    // A line is empty if the next character is `\n` or EOF. We don't consume
+    // that next character from the stream though - we leave it there as either
+    // the delimeter between lines or part of `CHUNKS_FILE_END_OF_CHUNK`.
     let empty_line = peek(alt((eof, "\n"))).map(|_| None);
     let populated_line = report_line.map(Some);
     alt((populated_line, empty_line))
@@ -490,8 +491,8 @@ where
     utils::save_report_lines(parsed_lines.as_slice(), &mut buf.state)
         .map_err(|e| ErrMode::from_external_error(buf, ErrorKind::Fail, e))?;
 
-    // Advance our chunk index so we can associate the data from the next chunk with
-    // the correct file from the report JSON.
+    // Advance our chunk index so we can associate the data from the next chunk
+    // with the correct file from the report JSON.
     buf.state.chunk.index += 1;
 
     Ok(())
@@ -668,8 +669,8 @@ mod tests {
                     "coverage",
                 )])),
             ),
-            // TODO: Make these cases error. Currently this parser accepts any number and
-            // clamps/truncates to u32.
+            // TODO: Make these cases error. Currently this parser accepts any
+            // number and clamps/truncates to u32.
             ("3.4", Ok(PyreportCoverage::HitCount(3))),
             ("-3", Ok(PyreportCoverage::HitCount(0))),
             // TODO: Make this case error or clamp to fractions <= 1
@@ -680,10 +681,10 @@ mod tests {
                     total: 4,
                 }),
             ),
-            // This input is invalid because it's not encapsulated by ""s. Ideally we would
-            // error here, but instead we parse this as `HitCount(1)` and rely on
-            // the parent to yell when it encounters the `/` instead of a `,` or
-            // whatever.
+            // This input is invalid because it's not encapsulated by ""s.
+            // Ideally we would error here, but instead we parse this as
+            // `HitCount(1)` and rely on the parent to yell when it encounters
+            // the `/` instead of a `,` or whatever.
             ("1/2", Ok(PyreportCoverage::HitCount(1))),
         ];
 
@@ -811,8 +812,8 @@ mod tests {
                     "complexity",
                 )])),
             ),
-            // TODO: Make these cases error. Currently the parser accepts any number and
-            // clamps/truncates to u32 range.
+            // TODO: Make these cases error. Currently the parser accepts any
+            // number and clamps/truncates to u32 range.
             ("-3", Ok(Complexity::Total(0))),
             ("3.4", Ok(Complexity::Total(3))),
             // TODO: Make this case error or clamp to ratios <= 1.
@@ -925,8 +926,9 @@ mod tests {
                 )])),
             ),
             (
-                // Can't switch types in the middle of a list. Actually expected this to pass
-                // because `"26"` is a valid `Condition` value, but it fails
+                // Can't switch types in the middle of a list. Actually expected
+                // this to pass because `"26"` is a valid `Condition` value, but
+                // it fails
                 "[\"26\", \"0:jump\"]",
                 Err(backtrack_error_with_contexts(vec![StrContext::Label(
                     "missing_branches",
@@ -1200,8 +1202,8 @@ mod tests {
                 )])),
             ),
             (
-                // TODO: Should fail. `partials` must be preceded by `branches` or `null` but it
-                // isn't here.
+                // TODO: Should fail. `partials` must be preceded by `branches`
+                // or `null` but it isn't here.
                 "[0, 1, [[10, 15, 1]]]",
                 Ok(LineSession {
                     session_id: 0,
@@ -1256,18 +1258,21 @@ mod tests {
             ("1".to_string(), 101),
         ]);
 
-        // Parsing a label that is already in `labels_index` should just return it
+        // Parsing a label that is already in `labels_index` should just return
+        // it
         buf.input = "\"already_inserted\"";
         assert_eq!(
             label.parse_next(&mut buf),
             Ok("already_inserted".to_string())
         );
 
-        // If we parse a number like `1`, we should look for `"1"` in the labels index.
+        // If we parse a number like `1`, we should look for `"1"` in the labels
+        // index.
         buf.input = "1";
         assert_eq!(label.parse_next(&mut buf), Ok("1".to_string()));
 
-        // Parsing a label that is not already in `labels_index` should insert it
+        // Parsing a label that is not already in `labels_index` should insert
+        // it
         buf.input = "\"not_already_inserted\"";
         assert_eq!(
             label.parse_next(&mut buf),
@@ -1802,38 +1807,43 @@ mod tests {
         // (input, (result, expected_line_count))
         let test_cases = [
             // We consume `{}\n` to parse the header, leaving the stream empty.
-            // `report_line_or_empty` recognizes this as an empty line terminated by EOF, so it
-            // succeeds.
+            // `report_line_or_empty` recognizes this as an empty line
+            // terminated by EOF, so it succeeds.
             ("{}\n", (Ok(()), 1)),
-            // Similar to the above. `{}\n` is the header, then one empty line terminated by `\n`,
-            // and then a second empty line terminated by EOF.
+            // Similar to the above. `{}\n` is the header, then one empty line
+            // terminated by `\n`, and then a second empty line terminated by
+            // EOF.
             ("{}\n\n", (Ok(()), 2)),
-            // No trailing newlines. There is a single line of data following the header, and then
-            // that's it.
+            // No trailing newlines. There is a single line of data following
+            // the header, and then that's it.
             ("{}\n[1, null, [[0, 1]]]", (Ok(()), 1)),
             (
-                // `{}\n` is the header, then we have two lines of data delimited by `\n`
+                // `{}\n` is the header, then we have two lines of data
+                // delimited by `\n`
                 "{}\n[1, null, [[0, 1]]]\n[0, null, [[0, 1]]]",
                 (Ok(()), 2),
             ),
             (
-                // Same as above, but the trailing newline represents an extra empty line
+                // Same as above, but the trailing newline represents an extra
+                // empty line
                 "{}\n[1, null, [[0, 1]]]\n[0, null, [[0, 1]]]\n",
                 (Ok(()), 3),
             ),
             (
-                // Same as above, but the trailing newline represents an extra empty line
+                // Same as above, but the trailing newline represents an extra
+                // empty line
                 "{}\n[1, null, [[0, 1]]]\n\n\n[0, null, [[0, 1]]]\n\n",
                 (Ok(()), 6),
             ),
             (
-                // One line of data followed by the "end of chunk" delimiter. We don't consider the
-                // delimiter to be a line, but attempting to parse it as one still increments the
-                // line count.
+                // One line of data followed by the "end of chunk" delimiter. We
+                // don't consider the delimiter to be a line, but attempting to
+                // parse it as one still increments the line count.
                 "{}\n[1, null, [[0, 1]]]\n<<<<< end_of_chunk >>>>>\n\n",
                 (Ok(()), 2),
             ),
-            // Chunks can have no header or report lines and only the text "null"
+            // Chunks can have no header or report lines and only the text
+            // "null"
             ("null\n", (Ok(()), 0)),
             // Malformed
             // Missing newline after header
@@ -1859,7 +1869,8 @@ mod tests {
                 ),
             ),
             (
-                // Malformed report line. Attempting the parse still increments the line count.
+                // Malformed report line. Attempting the parse still increments
+                // the line count.
                 "{}\n[1, null, [[0, 1]]\n\n",
                 (
                     Err(cut_error_with_contexts(vec![

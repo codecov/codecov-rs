@@ -193,9 +193,10 @@ pub(crate) fn normalize_coverage_measurement(
     coverage_type: &CoverageType,
 ) -> (PyreportCoverage, CoverageType) {
     match (coverage, coverage_type) {
-        // Clojure uses `true` to indicate partial coverage without giving any specific information
-        // about the missed/covered branches. Our parsers for other formats just make up "1/2" and
-        // move on, so we do that here as well.
+        // Clojure uses `true` to indicate partial coverage without giving any
+        // specific information about the missed/covered branches. Our parsers
+        // for other formats just make up "1/2" and move on, so we do that here
+        // as well.
         (PyreportCoverage::Partial(), _) => (
             PyreportCoverage::BranchesTaken {
                 covered: 1,
@@ -204,26 +205,30 @@ pub(crate) fn normalize_coverage_measurement(
             *coverage_type,
         ),
 
-        // For method coverage, Jacoco contains aggregated instruction coverage, branch coverage,
-        // and cyclomatic complexity metrics. If the branch coverage fields are present and
-        // non-zero, our parser will prefer them even though method coverage should be an int.
-        // We normalize by treating the numerator of the branch coverage as a hit count, so "0/2"
-        // is a miss but "3/4" is 3 hits. Not great, but the data is bugged to begin with.
+        // For method coverage, Jacoco contains aggregated instruction coverage,
+        // branch coverage, and cyclomatic complexity metrics. If the branch
+        // coverage fields are present and non-zero, our parser will prefer them
+        // even though method coverage should be an int. We normalize by
+        // treating the numerator of the branch coverage as a hit count, so
+        // "0/2" is a miss but "3/4" is 3 hits. Not great, but the data is
+        // bugged to begin with.
         (PyreportCoverage::BranchesTaken { covered, .. }, CoverageType::Method) => {
             (PyreportCoverage::HitCount(*covered), CoverageType::Method)
         }
 
-        // Our Go parser does not properly fill out the `coverage_type` field. If the `coverage`
-        // field has branch data in it, override the coverage type.
+        // Our Go parser does not properly fill out the `coverage_type` field.
+        // If the `coverage` field has branch data in it, override the coverage
+        // type.
         (PyreportCoverage::BranchesTaken { .. }, CoverageType::Line) => {
             (coverage.clone(), CoverageType::Branch)
         }
 
-        // We see some instances of Scale Scoverage reports being incorrectly translated into
-        // Cobertura reports. In Scoverage, 0 for branch coverage means miss, 1 means partial, and
-        // 2 means hit. It seems when converting to Cobertura, the value is taken as a raw hit
-        // count and not coverted to `branch-rate` or something, and our Cobertura parser doesn't
-        // handle it. So, we handle it here.
+        // We see some instances of Scale Scoverage reports being incorrectly
+        // translated into Cobertura reports. In Scoverage, 0 for branch
+        // coverage means miss, 1 means partial, and 2 means hit. It seems when
+        // converting to Cobertura, the value is taken as a raw hit
+        // count and not coverted to `branch-rate` or something, and our
+        // Cobertura parser doesn't handle it. So, we handle it here.
         (PyreportCoverage::HitCount(n), CoverageType::Branch) => {
             assert!(*n == 0 || *n == 1 || *n == 2); // TODO soften assert
             (
