@@ -143,14 +143,15 @@ impl Report for SqliteReport {
             .execute("ATTACH DATABASE ?1 AS other", [other.conn.path()])?;
 
         let merge_stmts = [
-            // The same `source_file` and `context` records may appear in multiple databases. They
-            // use a hash of their "names" as their PK so any instance of them will
-            // come up with the same PK. We can `INSERT OR IGNORE` to effectively union the tables
+            // The same `source_file` and `context` records may appear in
+            // multiple databases. They use a hash of their "names" as their PK
+            // so any instance of them will come up with the same PK. We can
+            // `INSERT OR IGNORE` to effectively union the tables
             "INSERT OR IGNORE INTO source_file SELECT * FROM other.source_file",
             "INSERT OR IGNORE INTO raw_upload SELECT * FROM other.raw_upload",
             "INSERT OR IGNORE INTO context SELECT * FROM other.context",
-            // For everything else, we use a joint primary key that should be globally unique and
-            // can simply concatenate the tables
+            // For everything else, we use a joint primary key that should be
+            // globally unique and can simply concatenate the tables
             "INSERT INTO coverage_sample SELECT * FROM other.coverage_sample",
             "INSERT INTO branches_data SELECT * FROM other.branches_data",
             "INSERT INTO method_data SELECT * FROM other.method_data",
