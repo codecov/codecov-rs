@@ -40,14 +40,15 @@ pub fn parse_pyreport(
     chunks_file: &File,
     report_builder: &mut SqliteReportBuilder,
 ) -> Result<()> {
-    // Encapsulate all of this in a block so that `report_builder_tx` gets torn down
-    // at the end. Otherwise, it'll hold onto a reference to `report_builder`
-    // and prevent us from consuming `report_builder` to actually build a
-    // `SqliteReport`.
+    // Encapsulate all of this in a block so that `report_builder_tx` gets torn
+    // down at the end. Otherwise, it'll hold onto a reference to
+    // `report_builder` and prevent us from consuming `report_builder` to
+    // actually build a `SqliteReport`.
     {
         let mut report_builder_tx = report_builder.transaction()?;
 
-        // Memory-map the input file so we don't have to read the whole thing into RAM
+        // Memory-map the input file so we don't have to read the whole thing
+        // into RAM
         let mmap_handle = unsafe { Mmap::map(report_json_file)? };
         let report_json::ParsedReportJson { files, sessions } =
             report_json::parse_report_json(&mmap_handle, &mut report_builder_tx)?;
@@ -56,7 +57,8 @@ pub fn parse_pyreport(
         let mmap_handle = unsafe { Mmap::map(chunks_file)? };
         let buf = unsafe { std::str::from_utf8_unchecked(&mmap_handle[..]) };
 
-        // Move `report_builder` from the report JSON's parse context to this one
+        // Move `report_builder` from the report JSON's parse context to this
+        // one
         let chunks_ctx = chunks::ParseCtx::new(report_builder_tx, files, sessions);
         let mut chunks_stream =
             chunks::ReportOutputStream::<&str, SqliteReport, SqliteReportBuilderTx> {

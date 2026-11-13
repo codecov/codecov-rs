@@ -206,9 +206,9 @@ fn sql_to_sessions_dict(report: &SqliteReport, output: &mut impl Write) -> Resul
         ))
     }
 
-    // Write the "sessions" key to the output file and build its value by iterating
-    // over our query results. It's the caller's responsibility to write
-    // surroundings {}s or ,s as needed.
+    // Write the "sessions" key to the output file and build its value by
+    // iterating over our query results. It's the caller's responsibility to
+    // write surroundings {}s or ,s as needed.
     write!(output, "\"sessions\": {{")?;
     let mut first_session = true;
     while let Some(row) = rows.next()? {
@@ -413,8 +413,8 @@ mod tests {
         sql_to_report_json(&report, &mut report_output).unwrap();
         let report_json: JsonVal = serde_json::from_slice(&report_output).unwrap();
 
-        // All of the totals are the same as in previous test cases so they have been
-        // collapsed/uncommented for brevity
+        // All of the totals are the same as in previous test cases so they have
+        // been collapsed/uncommented for brevity
         let expected = json!({
             "files": {
                 "src/report/models.rs": [
